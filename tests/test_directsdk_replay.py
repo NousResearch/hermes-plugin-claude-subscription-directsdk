@@ -37,7 +37,6 @@ def test_host_history_edits_replay_canonical_visible_blocks():
         native.prepare_history(history)
 
 
-@pytest.mark.skipif(os.name != "posix", reason="Native transport is POSIX")
 def test_active_stream_outlives_idle_budget_and_large_request_uses_files(tmp_path):
     script = tmp_path / "native.py"
     script.write_text('''import json, pathlib, sys, time

@@ -7,7 +7,7 @@ Standalone Hermes Agent model-provider plugin: `claude-subscription-directsdk-ex
 ## Requirements
 
 - Hermes Agent 0.21.4 or newer, or `main` at/after `118984d7a02f` (hermes-agent PR #117451, the core half of #105863). On an older Hermes the plugin fails to load with a clear `Failed to load user provider plugin` warning rather than half-working.
-- Python 3.10+, Linux or macOS (the process-group transport is POSIX-only).
+- Python 3.10+ on Linux, macOS or Windows. Native runs in its own process group (POSIX session / Windows `CREATE_NEW_PROCESS_GROUP`) and cancellation kills the whole tree (`killpg` / `taskkill /T`), so the `node` child behind the npm `claude.cmd` shim never outlives a cancelled request. The suite runs on all three in CI.
 - **The official Claude Code CLI, installed and logged in.** This plugin has no credentials of its own; everything goes through `claude`.
 
 The plugin checks for `claude` at every seam and never guesses:
@@ -103,11 +103,11 @@ Mid-turn `/steer` uses Hermes' standard delivery: a standalone typed user row ap
 
 Outside an event loop, `create` is synchronous; inside an event loop, it returns an offloaded coroutine. Streams also support `async for`. One client should belong to one independently cancellable Hermes owner.
 
-`cancel()` signals owned POSIX process groups without closing another thread's active descriptors. `close()` prevents new calls and finalizes idle/unstarted streams; active consumers unwind after cancellation. Early stream exit requires `close()` / `aclose()`. Live interruption stopped generation and the observed native PID exited.
+`cancel()` kills the owned process tree (POSIX process group / Windows `taskkill /T`) without closing another thread's active descriptors. `close()` prevents new calls and finalizes idle/unstarted streams; active consumers unwind after cancellation. Early stream exit requires `close()` / `aclose()`. Live interruption stopped generation and the observed native PID exited.
 
 Supported translation includes text, base64/native images and documents, canonical tools/results, output-token limits, stop sequences, reasoning enable/disable and effort, and JSON-schema response-format projection. Unsupported native sampling fields are omitted rather than forwarding deprecated `temperature` from auxiliary callers. Reasoning effort is clamped to native-supported levels, including Hermes minimal/ultra inputs. Native thinking deltas surface as `reasoning_content`. Model/service restrictions still apply.
 
-Unknown parameters fail explicitly. Unsupported surfaces include assistant prefill, strict function mode, forced tool choice, `parallel_tool_calls=False`, `n>1`, JSON-object-only mode, arbitrary headers/body fields, remote image downloads, non-POSIX cleanup, and cross-model signed-history parity. The read-idle timeout defaults to 180 seconds, resets on native output, and accepts Hermes' finite HTTPX read-timeout shape. Large prompts remain subject to native/OS limits.
+Unknown parameters fail explicitly. Unsupported surfaces include assistant prefill, strict function mode, forced tool choice, `parallel_tool_calls=False`, `n>1`, JSON-object-only mode, arbitrary headers/body fields, remote image downloads, and cross-model signed-history parity. The read-idle timeout defaults to 180 seconds, resets on native output, and accepts Hermes' finite HTTPX read-timeout shape. Large prompts remain subject to native/OS limits.
 
 ## Setup: `hermes model` → Claude Subscription DirectSDK (Experimental)
 

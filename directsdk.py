@@ -238,17 +238,35 @@ class Request:
             self.admission.abort()
         with self.lock:
             if self.process is not None:
-                try:
-                    os.killpg(self.process.pid, signal.SIGKILL)  # windows-footgun: ok — spawn rejects non-POSIX before creating a process
-                except ProcessLookupError:
-                    pass
+                kill_process_tree(self.process)
 
     def spawn(self, command, *, stdin=subprocess.DEVNULL, **kwargs):
         with self.lock:
             if self.cancelled.is_set():
                 raise RuntimeError('Claude request cancelled')
-            self.process = subprocess.Popen(command, stdin=stdin, start_new_session=True, **kwargs)
+            self.process = subprocess.Popen(command, stdin=stdin, **kwargs, **_own_process_group())
         return self.process
+
+
+def _own_process_group():
+    """Popen kwargs that put native (and the node/cmd children it spawns) in a group we can kill as one."""
+    if os.name == 'nt':
+        return {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {'start_new_session': True}
+
+
+def kill_process_tree(process):
+    """Kill native and every descendant: the npm shim is cmd.exe -> node on Windows, and a plain
+    Popen.kill() would orphan the node child that holds the real request open."""
+    if process.poll() is not None:
+        return
+    if os.name == 'nt':
+        subprocess.run(['taskkill', '/F', '/T', '/PID', str(process.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        return
+    try:
+        os.killpg(process.pid, signal.SIGKILL)  # windows-footgun: ok — the nt branch above never reaches this line
+    except ProcessLookupError:
+        pass
 
 
 class Stream:
@@ -361,8 +379,6 @@ class Client:
     def _create(self, **kwargs):
         body, manifest, names = request_body(kwargs)
         system, frames = prepare_history(kwargs.get('messages', []))
-        if os.name != 'posix':
-            raise RuntimeError('This native process-tree transport is currently qualified only on POSIX')
         if not isinstance(kwargs.get('model'), str) or not kwargs['model']:
             raise ValueError('model is required')
         request = Request(self)
@@ -400,7 +416,8 @@ class Client:
                     if conflicts:
                         raise ValueError('OAuth provider refuses conflicting native auth/backend overrides: ' + ', '.join(conflicts))
                 # Fail with the install hint, not a Popen FileNotFoundError, when Claude Code is absent.
-                if resolve_claude(self.command[:1], env) is None:
+                resolved = resolve_claude(self.command, env)
+                if resolved is None:
                     raise ClaudeCodeMissing(INSTALL_HINT)
                 config = env.pop('CLAUDE_SUBSCRIPTION_DIRECTSDK_CONFIG_DIR', None)
                 if config:
@@ -417,7 +434,8 @@ class Client:
                 (root / 'system.md').write_text(system, encoding='utf-8')
                 if 'max_tokens' in json.loads(body):
                     env['CLAUDE_CODE_MAX_OUTPUT_TOKENS'] = str(json.loads(body)['max_tokens'])
-                command = self.command + ['-p', '--model', native_model(kwargs['model']), '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--system-prompt-file', str(root / 'system.md'), '--settings', str(root / 'settings.json'), '--setting-sources', '', '--strict-mcp-config', '--disable-slash-commands', '--max-turns', '1', '--permission-mode', 'dontAsk', '--no-session-persistence', '--mcp-config', json.dumps(mcp)]
+                # The resolved path matters on Windows: CreateProcess finds claude.exe on PATH but not the npm claude.cmd shim.
+                command = resolved + ['-p', '--model', native_model(kwargs['model']), '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--system-prompt-file', str(root / 'system.md'), '--settings', str(root / 'settings.json'), '--setting-sources', '', '--strict-mcp-config', '--disable-slash-commands', '--max-turns', '1', '--permission-mode', 'dontAsk', '--no-session-persistence', '--mcp-config', json.dumps(mcp)]
                 p = request.spawn(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding='utf-8', cwd=tmp, env=env)
                 events = queue.Queue()
                 def read():

@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 
@@ -22,6 +23,11 @@ for line in sys.stdin:
  if r.get('shouldQuery') is False:
   print(json.dumps({'type':'result','num_turns':0,'is_error':False}),flush=True)
 if os.environ.get('HANG'):
+ if os.environ.get('PID_FILE'):
+  # Real native is a shim -> node tree; cancellation must take the grandchild down with it.
+  import subprocess
+  child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+  open(os.environ['PID_FILE'] + '.child','w').write(str(child.pid))
  print(json.dumps({'type':'stream_event','event':{'type':'content_block_delta','delta':{'type':'text_delta','text':'started'}}}),flush=True)
  time.sleep(60)
 settings=json.loads(pathlib.Path(sys.argv[sys.argv.index('--settings')+1]).read_text())
@@ -52,7 +58,18 @@ sys.exit(1 if len(blocks)>1 else 0)
 """
 
 
-@unittest.skipUnless(os.name == "posix", "Native process-group transport requires POSIX")
+def _wait_gone(*pids, timeout=15):
+    # Reaping is event-driven; the bound only guards a hang and must tolerate a loaded runner.
+    import psutil
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not any(psutil.pid_exists(pid) and psutil.Process(pid).status() != psutil.STATUS_ZOMBIE for pid in pids):
+            return True
+        time.sleep(0.02)
+    return False
+
+
 class Contract(unittest.TestCase):
     def client(self, tmp, **kw):
         import directsdk
@@ -212,16 +229,18 @@ class Contract(unittest.TestCase):
                 self.assertEqual(result.choices[0].finish_reason, "tool_calls")
 
             asyncio.run(run())
-            hanging = self.client(tmp, HANG="1")
+            cancel_pidfile = Path(tmp) / "cancel-pid"
+            hanging = self.client(tmp, HANG="1", PID_FILE=str(cancel_pidfile))
             stream = hanging.chat.completions.create(**self.request(), stream=True)
             self.assertEqual(next(stream).choices[0].delta.content, "started")
+            native_pid, grandchild_pid = int(cancel_pidfile.read_text()), int((Path(str(cancel_pidfile) + ".child")).read_text())
             hanging.cancel()
             with self.assertRaisesRegex(RuntimeError, "cancel"):
                 list(stream)
+            # cancel() must take the whole tree down, on every OS (Windows: shim -> node grandchild).
+            self.assertTrue(_wait_gone(native_pid, grandchild_pid), "cancel() left native or its grandchild running")
             hanging.close()
             # Closing a paused stream must reap without asking for another chunk.
-            import time
-
             pidfile = Path(tmp) / "pid"
             hanging = self.client(tmp, HANG="1", PID_FILE=str(pidfile))
             paused = hanging.chat.completions.create(**self.request(), stream=True)
@@ -231,16 +250,7 @@ class Contract(unittest.TestCase):
             paused.close()
             self.assertTrue(process.stdout.closed)
             self.assertEqual(len(hanging._requests), 0)
-            # Reaping is event-driven; the bound only guards a hang and must tolerate a loaded runner.
-            deadline = time.monotonic() + 15
-            while time.monotonic() < deadline:
-                try:
-                    os.kill(pid, 0)
-                except ProcessLookupError:
-                    break
-                time.sleep(0.02)
-            else:
-                self.fail("Closed paused stream left its native child unreaped")
+            self.assertTrue(_wait_gone(pid), "Closed paused stream left its native child unreaped")
             hanging.close()
             unstarted = self.client(tmp)
             stream = unstarted.create(**self.request(), stream=True)
