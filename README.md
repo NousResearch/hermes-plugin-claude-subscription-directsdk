@@ -4,7 +4,7 @@ Standalone Hermes Agent model-provider plugin: `claude-subscription-directsdk-ex
 
 ## Requirements
 
-- Hermes Agent with the external-process provider seams from hermes-agent PR #117451 (the core half of #105863). On an older Hermes the plugin fails to load with a clear `Failed to load user provider plugin` warning rather than half-working.
+- Hermes Agent 0.21.4 or newer, or `main` at/after `118984d7a02f` (hermes-agent PR #117451, the core half of #105863). On an older Hermes the plugin fails to load with a clear `Failed to load user provider plugin` warning rather than half-working.
 - Python 3.10+, Linux or macOS (the process-group transport is POSIX-only).
 - **The official Claude Code CLI, installed and logged in.** This plugin has no credentials of its own; everything goes through `claude`.
 
@@ -22,6 +22,8 @@ Install Claude Code with `npm install -g @anthropic-ai/claude-code`, or point `C
 ## Install
 
 ```sh
+hermes plugins install claude-subscription-directsdk      # from the Hermes plugin catalog (pinned, reviewed)
+# or straight from GitHub (tracks main):
 hermes plugins install NousResearch/hermes-plugin-claude-subscription-directsdk
 # or, by hand:
 git clone https://github.com/NousResearch/hermes-plugin-claude-subscription-directsdk \

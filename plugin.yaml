@@ -7,7 +7,7 @@ author: Nous Research
 license: MIT
 homepage: https://github.com/NousResearch/hermes-plugin-claude-subscription-directsdk
 tags: [model-provider, anthropic, claude, subscription, experimental]
-requires_hermes: ">=0.21.0"
+requires_hermes: ">=0.21.4"
 platforms: [linux, darwin]
 optional_env:
   - CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND
