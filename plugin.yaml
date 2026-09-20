@@ -1,0 +1,19 @@
+name: claude-subscription-directsdk-experimental
+kind: model-provider
+version: 0.2.0
+manifest_version: 2
+description: Claude Subscription DirectSDK (Experimental) — drive your Claude Pro/Max subscription through the official Claude Code CLI; Hermes owns tools, approvals and compaction
+author: Nous Research
+license: MIT
+homepage: https://github.com/NousResearch/hermes-plugin-claude-subscription-directsdk
+tags: [model-provider, anthropic, claude, subscription, experimental]
+requires_hermes: ">=0.21.0"
+platforms: [linux, darwin]
+optional_env:
+  - CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND
+  - CLAUDE_SUBSCRIPTION_DIRECTSDK_CONFIG_DIR
+  - CLAUDE_CONFIG_DIR
+external_dependencies:
+  - name: claude
+    check: "claude --version"
+    install: "npm install -g @anthropic-ai/claude-code"
