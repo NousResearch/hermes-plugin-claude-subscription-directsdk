@@ -265,8 +265,24 @@ def kill_process_tree(process):
         return
     try:
         os.killpg(process.pid, signal.SIGKILL)  # windows-footgun: ok — the nt branch above never reaches this line
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
+        # ESRCH: already gone. EPERM: macOS answers killpg with EPERM once the group leader is a zombie.
         pass
+
+
+# Node, cmd.exe and Claude Code's own config lookup need these even when the caller hands us a
+# deliberately minimal environment; without SystemRoot a Windows child cannot even open a socket.
+_WINDOWS_ESSENTIALS = ('SYSTEMROOT', 'SYSTEMDRIVE', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA')
+
+
+def _with_windows_essentials(env):
+    if os.name != 'nt':
+        return env
+    present = {key.upper() for key in env}
+    for key, value in os.environ.items():
+        if key.upper() in _WINDOWS_ESSENTIALS and key.upper() not in present:
+            env[key] = value
+    return env
 
 
 class Stream:
@@ -405,11 +421,13 @@ class Client:
             timeout = getattr(timeout, 'read', timeout)
             if not isinstance(timeout, (int, float)) or timeout <= 0:
                 raise ValueError('timeout must be positive seconds')
-            with tempfile.TemporaryDirectory(prefix='claude-directsdk-') as tmp:
+            # Windows refuses to delete a directory a dying child still holds as cwd; the owner thread's
+            # p.wait() below reaps before we leave the block, and stragglers must not fail the request.
+            with tempfile.TemporaryDirectory(prefix='claude-directsdk-', ignore_cleanup_errors=True) as tmp:
                 root = Path(tmp)
                 (root / 'tools.json').write_text(json.dumps(manifest), encoding='utf-8')
                 mcp = {'mcpServers': {'hermes': {'command': sys.executable, 'args': [str(Path(__file__).with_name('inert_mcp.py')), str(root / 'tools.json')]}}}
-                env = dict(self.env if self.env is not None else os.environ)
+                env = _with_windows_essentials(dict(self.env if self.env is not None else os.environ))
                 if self.env is None:
                     conflicts = [key for key in ('ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_FOUNDRY_API_KEY') if env.get(key)]
                     conflicts += [key for key in ('CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY') if env.get(key, '').lower() not in ('', '0', 'false', 'no', 'off')]
