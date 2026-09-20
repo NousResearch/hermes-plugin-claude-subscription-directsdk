@@ -1,5 +1,7 @@
 # Claude Subscription DirectSDK (Experimental) — Hermes plugin
 
+![Claude Subscription DirectSDK: Hermes agent loop → claude CLI on your Pro/Max subscription → stream-json replies; checks for claude on four seams](assets/banner.png)
+
 Standalone Hermes Agent model-provider plugin: `claude-subscription-directsdk-experimental`, displayed as **Claude Subscription DirectSDK (Experimental)**. It drives the unmodified official Claude Code executable as a request-scoped model client for your Claude Pro/Max subscription. Hermes keeps its normal agent loop, tools, approvals and compaction. Despite the name, the implementation speaks native stream-json directly and does not require the Python Agent SDK package.
 
 ## Requirements
