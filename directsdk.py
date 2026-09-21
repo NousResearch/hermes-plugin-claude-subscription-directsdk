@@ -20,11 +20,11 @@ from types import SimpleNamespace
 
 try:
     from .admission import Admission
-    from .model_catalog import native_model
+    from .model_catalog import native_model, supports_adaptive_thinking
     from .directsdk_setup import INSTALL_HINT, _resolve as resolve_claude
 except ImportError:
     from admission import Admission
-    from model_catalog import native_model
+    from model_catalog import native_model, supports_adaptive_thinking
     from directsdk_setup import INSTALL_HINT, _resolve as resolve_claude
 
 
@@ -171,7 +171,9 @@ def request_body(kwargs):
             # Native clear-thinking context edits are invalid when thinking is disabled.
             body['context_management'] = {'edits': []}
         else:
-            if reasoning.get('enabled') is True:
+            # Routes without adaptive thinking (Haiku 4.5) 400 on the block; their own
+            # default thinking plus the effort signal below stand in for it.
+            if reasoning.get('enabled') is True and supports_adaptive_thinking(kwargs.get('model')):
                 body['thinking'] = {'type': 'adaptive'}
             if effort:
                 body['output_config'] = {'effort': effort}
