@@ -26,7 +26,7 @@ LOGIN_HINT = "Claude Code is installed but not logged in. Run `claude auth login
 def _resolve(command, env):
     command = list(command) if command else [env.get("CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND") or "claude"]
     head = command[0]
-    exe = head if os.path.isabs(head) and os.access(head, os.X_OK) else shutil.which(head)
+    exe = head if os.path.isabs(head) and os.access(head, os.X_OK) else shutil.which(head, path=env.get("PATH") or os.defpath)
     return ([exe] + command[1:]) if exe else None
 
 

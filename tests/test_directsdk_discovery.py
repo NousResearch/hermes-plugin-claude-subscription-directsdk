@@ -49,6 +49,24 @@ def test_missing_claude_is_reported_on_every_path(profile, tmp_path, caplog):
     assert providers.get_provider_profile(PLUGIN_NAME) is not None
 
 
+def test_resolve_honors_the_env_dict_not_the_process_path(profile, tmp_path):
+    """_resolve must look up `claude` on the PATH of the env it is handed. The process PATH of a
+    test/CI runner is unrelated: a host that happens to have claude installed must not make an
+    env-scoped 'no claude' probe find it (the bug behind the flaky missing-CLI gate)."""
+    from directsdk_setup import _resolve
+
+    fake = tmp_path / "claude"
+    fake.write_text("#!/bin/sh\nexit 0\n")
+    fake.chmod(0o755)
+    # Env PATH points at the fake CLI; the interpreter's process PATH does not contain tmp_path.
+    env = {"PATH": str(tmp_path)}
+    assert _resolve(None, env) == [str(fake)]
+    # And an env without any usable PATH resolves to nothing, even when the process PATH has claude.
+    assert _resolve(None, {"PATH": str(tmp_path / "nowhere")}) is None
+    # No PATH key at all falls back to exec's own default search path, not the interpreter's PATH.
+    assert _resolve(None, {}) == _resolve(None, {"PATH": os.defpath})
+
+
 def test_native_alias_metadata_is_bounded_and_never_claims_subscription_invoice(profile):
     from decimal import Decimal
     from agent.model_metadata import get_model_context_length
