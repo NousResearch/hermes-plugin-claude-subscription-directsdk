@@ -181,6 +181,31 @@ class Contract(unittest.TestCase):
             )[0]
         )
         self.assertEqual(effort["output_config"], {"effort": "low"})
+        enabled = {"reasoning": {"enabled": True, "effort": "medium"}}
+        adaptive = json.loads(
+            directsdk.request_body({**self.request(), "extra_body": enabled})[0]
+        )
+        self.assertEqual(adaptive["thinking"], {"type": "adaptive"})
+        self.assertEqual(adaptive["output_config"], {"effort": "medium"})
+        for route in ("haiku", "claude-haiku-4-5", "claude-haiku-4-5-20251001"):
+            # Haiku 4.5 answers `adaptive thinking is not supported on this model` with a 400.
+            haiku = json.loads(
+                directsdk.request_body(
+                    {**self.request(), "model": route, "extra_body": enabled}
+                )[0]
+            )
+            self.assertNotIn("thinking", haiku)
+            self.assertEqual(haiku["output_config"], {"effort": "medium"})
+        off = json.loads(
+            directsdk.request_body(
+                {
+                    **self.request(),
+                    "model": "haiku",
+                    "extra_body": {"reasoning": {"enabled": False}},
+                }
+            )[0]
+        )
+        self.assertEqual(off["thinking"], {"type": "disabled"})
         schema = {
             "type": "object",
             "properties": {"title": {"type": "string"}},

@@ -13,6 +13,9 @@ ALIASES = {
     'opus': 'claude-opus-5',
     'fable': 'claude-fable-5-1',
 }
+# Haiku 4.5 rejects `thinking: {'type': 'adaptive'}` with a 400 upstream; its effort signal
+# still applies. Unknown routes keep adaptive so future models are not silently downgraded.
+NO_ADAPTIVE_THINKING = frozenset({'claude-haiku-4-5-20251001'})
 
 
 def native_model(model):
@@ -26,6 +29,13 @@ def native_model(model):
             raise ValueError('Haiku 4.5 does not support a 1M context window')
         return canonical
     return model
+
+
+def supports_adaptive_thinking(model):
+    # Body assembly precedes model validation, so an absent or invalid route answers True
+    # and still reaches the existing `model is required` error.
+    base = model.removesuffix('[1m]') if isinstance(model, str) else ''
+    return ALIASES.get(base, base) not in NO_ADAPTIVE_THINKING
 
 
 MODEL_METADATA = {
