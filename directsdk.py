@@ -135,6 +135,31 @@ def prepare_history(messages):
     return '\n\n'.join(system), frames
 
 
+_BANNED_TOP_LEVEL = ('oneOf', 'allOf', 'anyOf')
+
+
+def normalize_input_schema(schema):
+    """Anthropic's tool validator hard-400s on top-level oneOf/allOf/anyOf and on the null branch of
+    nullable unions. The host normalizes both in ``agent.anthropic_message_convert``, but that path
+    only runs for ``api_mode='messages'``; this transport is ``chat_completions`` and bypasses it, so
+    a single tool carrying a conditional-required hint (``allOf``/``if``/``then``) fails the whole
+    request. Mirror the host's normalization here — the combinators are advisory, handlers
+    re-validate their own arguments, and nested unions are left untouched."""
+    try:
+        from tools.schema_sanitizer import strip_nullable_unions
+        normalized = strip_nullable_unions(schema, keep_nullable_hint=False) if schema else None
+    except ImportError:  # standalone/flat test path without the host on sys.path
+        normalized = schema
+    if not isinstance(normalized, dict):
+        return {'type': 'object', 'properties': {}}
+    if any(key in normalized for key in _BANNED_TOP_LEVEL):
+        normalized = {k: v for k, v in normalized.items() if k not in _BANNED_TOP_LEVEL}
+        normalized.setdefault('type', 'object')
+    if normalized.get('type') == 'object' and not isinstance(normalized.get('properties'), dict):
+        normalized = {**normalized, 'properties': {}}
+    return normalized
+
+
 def request_body(kwargs):
     allowed = {'model', 'messages', 'tools', 'stream', 'stream_options', 'max_tokens', 'max_completion_tokens',
                'temperature', 'top_p', 'stop', 'extra_body', 'timeout', 'tool_choice', 'parallel_tool_calls', 'n', 'response_format'}
@@ -219,6 +244,8 @@ def request_body(kwargs):
         schema, description = f.get('parameters', {'type': 'object'}), f.get('description', '')
         if not isinstance(schema, dict) or not isinstance(description, str):
             raise ValueError('Tool schema must be an object and description a string')
+        # The manifest (inert MCP server) and the request body must advertise the same shape.
+        schema = normalize_input_schema(schema)
         manifest.append({'name': name, 'description': description, 'inputSchema': schema})
         tools.append({'name': PREFIX + name, 'description': description, 'input_schema': schema})
     body['tools'] = tools
