@@ -258,5 +258,39 @@ class Contract(unittest.TestCase):
             self.assertEqual(len(unstarted._requests), 0)
 
 
+    def test_tool_schemas_are_normalized_for_the_native_validator(self):
+        """Anthropic hard-400s on top-level oneOf/allOf/anyOf and on the null branch of nullable
+        unions. The host normalizes both, but only on the api_mode='messages' path, so a single
+        Hermes tool carrying a conditional-required hint would fail every request on this
+        transport. Nested unions that are not nullable stay as the tool declared them."""
+        import directsdk
+
+        req = self.request()
+        req["tools"][0]["function"]["parameters"] = {
+            "type": "object",
+            "properties": {
+                "mode": {"type": "string"},
+                "proposal": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                "ref": {"oneOf": [{"type": "string"}, {"type": "integer"}]},
+            },
+            "required": ["mode"],
+            "allOf": [{"if": {"properties": {"mode": {"const": "proposal"}}},
+                       "then": {"required": ["proposal"]}}],
+        }
+        encoded, manifest, _ = directsdk.request_body(req)
+        wire = json.loads(encoded)["tools"][0]["input_schema"]
+        # The inert MCP manifest and the request body must advertise the same shape.
+        for schema in (wire, manifest[0]["inputSchema"]):
+            self.assertNotIn("allOf", schema)
+            self.assertEqual(schema["required"], ["mode"])
+            self.assertEqual(schema["properties"]["proposal"], {"type": "string"})
+            self.assertEqual(schema["properties"]["ref"],
+                             {"oneOf": [{"type": "string"}, {"type": "integer"}]})
+        # A combinator-only schema still reaches the validator as a usable object.
+        req["tools"][0]["function"]["parameters"] = {"anyOf": [{"type": "object"}]}
+        bare = json.loads(directsdk.request_body(req)[0])["tools"][0]["input_schema"]
+        self.assertEqual(bare, {"type": "object", "properties": {}})
+
+
 if __name__ == "__main__":
     unittest.main()
