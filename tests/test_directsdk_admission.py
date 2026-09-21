@@ -67,6 +67,41 @@ def test_first_response_owns_usage_and_stops_recovery(tmp_path, stop):
         client.close(); peer.shutdown(); thread.join(); peer.server_close()
 
 
+def test_empty_tool_input_completes_the_capture(tmp_path):
+    """A no-argument tool call streams an empty input_json_delta; the capture must still complete."""
+    calls = []
+    usage = {'input_tokens':0, 'output_tokens':0, 'cache_read_input_tokens':0, 'cache_creation_input_tokens':0}
+    class Peer(BaseHTTPRequestHandler):
+        def log_message(self, *args): pass
+        def do_POST(self):
+            calls.append(self.path)
+            self.rfile.read(int(self.headers['Content-Length']))
+            self.send_response(200); self.send_header('Content-Type','text/event-stream'); self.end_headers()
+            events = [
+                {'type':'message_start','message':{'id':'first','role':'assistant','model':'sonnet','content':[], 'usage':usage}},
+                {'type':'content_block_start','index':0,'content_block':{'type':'tool_use','id':'toolu_1','name':'mcp__hermes__list_things','input':{}}},
+                {'type':'content_block_delta','index':0,'delta':{'type':'input_json_delta','partial_json':''}},
+                {'type':'content_block_stop','index':0},
+                {'type':'message_delta','delta':{'stop_reason':'tool_use'},'usage':usage},
+                {'type':'message_stop'},
+            ]
+            self.wfile.write(''.join('data: '+json.dumps(e)+'\n\n' for e in events).encode())
+    peer=ThreadingHTTPServer(('127.0.0.1',0),Peer)
+    thread=threading.Thread(target=peer.serve_forever,daemon=True); thread.start()
+    native=tmp_path/'native.py'; native.write_text(NATIVE)
+    tools=[{'type':'function','function':{'name':'list_things','description':'list','parameters':{'type':'object','properties':{}}}}]
+    client=directsdk.Client(command=[sys.executable,str(native)],env={'PATH':os.defpath,'HOME':str(tmp_path),'ANTHROPIC_BASE_URL':f'http://127.0.0.1:{peer.server_port}'})
+    try:
+        result=client.create(model='sonnet',messages=[{'role':'user','content':'fixture'}],tools=tools)
+        assert len(calls)==1
+        call=result.choices[0].message.tool_calls[0]
+        assert call.function.name=='list_things'
+        assert json.loads(call.function.arguments)=={}
+        assert result.choices[0].finish_reason=='tool_calls'
+    finally:
+        client.close(); peer.shutdown(); thread.join(); peer.server_close()
+
+
 def test_cancel_closes_the_active_upstream_socket(tmp_path):
     entered, disconnected = threading.Event(), threading.Event()
     class Peer(BaseHTTPRequestHandler):

@@ -62,7 +62,9 @@ class Capture:
     def _block_stop(self, event):
         index = event['index']
         if index in self.arguments:
-            self.message['content'][index]['input'] = json.loads(self.arguments.pop(index))
+            # A no-argument tool call streams one input_json_delta with an empty partial_json.
+            raw = self.arguments.pop(index)
+            self.message['content'][index]['input'] = json.loads(raw) if raw.strip() else {}
 
     def _delta(self, event):
         self.message.update(event.get('delta', {}))
