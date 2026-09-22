@@ -484,7 +484,7 @@ class Client:
                             continue
                         if isinstance(event, Exception):
                             # The offending stdout line is the whole diagnosis (a shim banner, a stray print); keep it.
-                            raise RuntimeError('Invalid native stream-json output: ' + repr(getattr(event, 'doc', '')[:300])) from event
+                            raise RuntimeError('Invalid native stream-json output: ' + repr((getattr(event, 'doc', None) or str(event))[:300])) from event
                         deadline = time.monotonic() + timeout
                         return event
                 for index, frame in enumerate(frames):
