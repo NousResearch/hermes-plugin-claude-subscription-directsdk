@@ -55,12 +55,13 @@ def test_resolve_honors_the_env_dict_not_the_process_path(profile, tmp_path):
     env-scoped 'no claude' probe find it (the bug behind the flaky missing-CLI gate)."""
     from directsdk_setup import _resolve
 
-    fake = tmp_path / "claude"
+    # Windows resolves `claude` through PATHEXT, so the fake needs a launcher extension there.
+    fake = tmp_path / ("claude.cmd" if os.name == "nt" else "claude")
     fake.write_text("#!/bin/sh\nexit 0\n")
     fake.chmod(0o755)
     # Env PATH points at the fake CLI; the interpreter's process PATH does not contain tmp_path.
     env = {"PATH": str(tmp_path)}
-    assert _resolve(None, env) == [str(fake)]
+    assert [p.lower() for p in _resolve(None, env)] == [str(fake).lower()]
     # And an env without any usable PATH resolves to nothing, even when the process PATH has claude.
     assert _resolve(None, {"PATH": str(tmp_path / "nowhere")}) is None
     # No PATH key at all falls back to exec's own default search path, not the interpreter's PATH.
