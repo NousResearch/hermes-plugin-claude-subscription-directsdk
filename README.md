@@ -67,6 +67,18 @@ export CLAUDE_SUBSCRIPTION_DIRECTSDK_CONFIG_DIR=/path/to/official-cli-config
 
 An inherited `CLAUDE_CONFIG_DIR` also works. To select an executable outside PATH, set `CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND` to its absolute path. There is no unrestricted public CLI-flags setting; isolation and denial flags are plugin-owned. The low-level Python `Client(env=...)` injection is available for explicitly controlled local fixtures and does not apply the inherited-environment guard. It is not the normal Hermes provider path or an OAuth certification mechanism.
 
+### Optional trusted gateway upstream
+
+The normal provider path may send the admission relay to an explicit HTTPS organizational gateway:
+
+```sh
+export CLAUDE_SUBSCRIPTION_DIRECTSDK_UPSTREAM=https://gateway.example.com
+```
+
+This setting changes only the relay's upstream destination. The official `claude` process still talks to the request-scoped loopback admission URL, and its native authorization and identity headers are forwarded unchanged by the relay. Use this only with a gateway you trust with those headers.
+
+The generic `ANTHROPIC_BASE_URL` override remains rejected on the normal OAuth path, along with `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, cloud-backend overrides, and the other conflicting native-auth settings above. That keeps accidental inherited backend configuration fail-closed while making gateway routing an explicit DirectSDK choice. Additional gateway metadata can still be supplied through native Claude environment such as `ANTHROPIC_CUSTOM_HEADERS` when supported by the gateway.
+
 Persistent configuration:
 
 ```yaml
