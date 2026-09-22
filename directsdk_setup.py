@@ -13,10 +13,10 @@ import tempfile
 
 try:
     from .admission import Admission
-    from .model_catalog import CONTEXT_WINDOWS, native_model
+    from .model_catalog import CONTEXT_WINDOWS, canonical_model, picker_route
 except ImportError:
     from admission import Admission
-    from model_catalog import CONTEXT_WINDOWS, native_model
+    from model_catalog import CONTEXT_WINDOWS, canonical_model, picker_route
 
 INSTALL_HINT = ("Claude Code is not installed (no `claude` on PATH). Install it with "
                 "`npm install -g @anthropic-ai/claude-code` or set CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND to the binary.")
@@ -26,7 +26,7 @@ LOGIN_HINT = "Claude Code is installed but not logged in. Run `claude auth login
 def _resolve(command, env):
     command = list(command) if command else [env.get("CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND") or "claude"]
     head = command[0]
-    exe = head if os.path.isabs(head) and os.access(head, os.X_OK) else shutil.which(head)
+    exe = head if os.path.isabs(head) and os.access(head, os.X_OK) else shutil.which(head, path=env.get("PATH"))
     return ([exe] + command[1:]) if exe else None
 
 
@@ -104,13 +104,20 @@ def discover_models(command=None, env=None, timeout=40):
     credit_billed_on_plan = {"claude-fable-5-1"} if plan and "max" not in plan else set()
     routes = {}
     for row in native:
-        base = str(row.get("resolvedModel") or row.get("value") or "").removesuffix("[1m]")
+        raw = str(row.get("resolvedModel") or row.get("value") or "")
+        base = canonical_model(raw)
         if base not in CONTEXT_WINDOWS:
             continue
-        route = native_model(base)
+        # Each native row is its own route: `opus` (included 200K) and `opus[1m]` (1M, metered
+        # differently) stay distinct, each with the note the CLI attached to that row.
+        try:
+            route = picker_route(raw)
+        except ValueError:
+            continue
+        description = str(row.get("description") or "")
         # Model names, not the native "Default (recommended)" alias row.
-        label = str(row.get("description") or "").split("·")[0].strip() or route
+        label = description.split("·")[0].strip() or route
         entry = routes.setdefault(route, {"id": route, "label": label, "note": "", "upstream_requests": upstream})
-        if "usage credit" in str(row.get("description") or "").lower() or base in credit_billed_on_plan:
+        if "usage credit" in description.lower() or base in credit_billed_on_plan:
             entry["note"] = "usage credits"
     return list(routes.values()) or None

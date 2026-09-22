@@ -55,10 +55,13 @@ def test_first_response_owns_usage_and_stops_recovery(tmp_path, stop):
     peer=ThreadingHTTPServer(('127.0.0.1',0),Peer)
     thread=threading.Thread(target=peer.serve_forever,daemon=True); thread.start()
     native=tmp_path/'native.py'; native.write_text(NATIVE)
-    client=directsdk.Client(command=[sys.executable,str(native)],env={'PATH':os.defpath,'HOME':str(tmp_path),'ANTHROPIC_BASE_URL':f'http://127.0.0.1:{peer.server_port}'})
+    # `always-200k`: a model_context_window_exceeded stop must not move to the [1m] route here, so the
+    # invariant under test stays one spawn, one admission (auto-mode escalation has its own tests).
+    client=directsdk.Client(command=[sys.executable,str(native)],env={'PATH':os.defpath,'HOME':str(tmp_path),'ANTHROPIC_BASE_URL':f'http://127.0.0.1:{peer.server_port}'}, context_routing='always-200k')
     try:
         result=client.create(model='sonnet',messages=[{'role':'user','content':'fixture'}])
         assert len(calls)==1
+        assert result.usage.model_dump()['native_admission']['routes']==['claude-sonnet-5']
         assert result.choices[0].message.content=='FIRST'
         assert result.choices[0].finish_reason==('stop' if stop=='end_turn' else 'length')
         assert result.usage.prompt_tokens==0

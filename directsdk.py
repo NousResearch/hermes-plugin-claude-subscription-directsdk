@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import logging
 import math
 import os
 from pathlib import Path
@@ -20,12 +21,14 @@ from types import SimpleNamespace
 
 try:
     from .admission import Admission
-    from .model_catalog import native_model
+    from .model_catalog import context_routing_policy, route_plan
     from .directsdk_setup import INSTALL_HINT, _resolve as resolve_claude
 except ImportError:
     from admission import Admission
-    from model_catalog import native_model
+    from model_catalog import context_routing_policy, route_plan
     from directsdk_setup import INSTALL_HINT, _resolve as resolve_claude
+
+logger = logging.getLogger(__name__)
 
 
 class ClaudeCodeMissing(RuntimeError):
@@ -34,6 +37,15 @@ class ClaudeCodeMissing(RuntimeError):
 
 CARRIER = 'claude-subscription-directsdk-experimental.native_assistant'
 PREFIX = 'mcp__hermes__'
+# The API's pre-generation rejections of a prompt that does not fit the selected route:
+# "prompt is too long: N tokens > 200000 maximum" and
+# "input length and `max_tokens` exceed context limit: N + M > 200000, ...".
+CONTEXT_WINDOW_ERROR = re.compile(r'prompt is too long|exceeds? (?:the )?context (?:limit|window)', re.IGNORECASE)
+
+
+def context_window_error(text):
+    """True when ``text`` is the upstream's own report that the prompt overflowed the route's window."""
+    return bool(text) and CONTEXT_WINDOW_ERROR.search(text) is not None
 
 
 class Object(SimpleNamespace):
@@ -231,6 +243,8 @@ class Request:
         self.cancelled = threading.Event()
         self.admission = None
         self.lock = threading.Lock()
+        # Set once a chunk reaches the consumer; a route change is only possible before that.
+        self.delivered = False
 
     def cancel(self):
         self.cancelled.set()
@@ -343,9 +357,12 @@ class Client:
     HERMES_SKIP_TRANSPORT_WRAP = True
     HERMES_SKIP_ASYNC_WRAP = True
 
-    def __init__(self, command=None, args=None, env=None, timeout=180, **_):
+    def __init__(self, command=None, args=None, env=None, timeout=180, context_routing=None, **_):
         # Hermes snapshots routing metadata from client-shaped objects; this is not a credential.
         self.api_key = 'external-process'
+        # Resolved per request (an explicit value beats $CLAUDE_SUBSCRIPTION_DIRECTSDK_CONTEXT_ROUTING) so a
+        # misspelt policy fails the request with its own message instead of failing client construction.
+        self.context_routing = context_routing
         self.base_url = 'process://claude-subscription-directsdk-experimental'
         self.env = dict(env) if env is not None else None
         source_env = self.env if self.env is not None else os.environ
@@ -414,6 +431,33 @@ class Client:
             stream.close()
 
     def _run(self, request, kwargs, body, manifest, names, system, frames):
+        try:
+            policy = context_routing_policy(self.context_routing, self.env if self.env is not None else os.environ)
+            plan = route_plan(kwargs['model'], policy)
+            streaming = bool(kwargs.get('stream'))
+            attempts = []
+            for index, route in enumerate(plan):
+                chunk, overflow = yield from self._attempt(request, kwargs, body, manifest, names, system, frames, route, streaming, attempts)
+                if overflow and index < len(plan) - 1 and not request.delivered:
+                    # `auto`: the included route was genuinely too small and nothing has reached the
+                    # caller yet, so the same request runs once more on the [1m] route.
+                    logger.info('%s: %s rejected the request as over its context window (%s); retrying on %s',
+                                kwargs['model'], route, overflow, plan[index + 1])
+                    continue
+                if chunk is None:
+                    raise RuntimeError('Native API error: ' + overflow)
+                request.delivered = True
+                yield chunk
+                return
+        finally:
+            request.cancel()
+            with self._lock:
+                self._requests.discard(request)
+
+    def _attempt(self, request, kwargs, body, manifest, names, system, frames, route, streaming, attempts):
+        """One native spawn on ``route``. Yields stream chunks (only when ``streaming``) and returns
+        ``(chunk, overflow)``: the terminal chunk carrying ``_response``, and/or the context-window
+        failure message when ``route`` turned out to be too small for this request."""
         p = None
         reader = None
         try:
@@ -453,7 +497,8 @@ class Client:
                 if 'max_tokens' in json.loads(body):
                     env['CLAUDE_CODE_MAX_OUTPUT_TOKENS'] = str(json.loads(body)['max_tokens'])
                 # The resolved path matters on Windows: CreateProcess finds claude.exe on PATH but not the npm claude.cmd shim.
-                command = resolved + ['-p', '--model', native_model(kwargs['model']), '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--system-prompt-file', str(root / 'system.md'), '--settings', str(root / 'settings.json'), '--setting-sources', '', '--strict-mcp-config', '--disable-slash-commands', '--max-turns', '1', '--permission-mode', 'dontAsk', '--no-session-persistence', '--mcp-config', json.dumps(mcp)]
+                # `route` is the policy's explicit native selection; the [1m] suffix is never added here.
+                command = resolved + ['-p', '--model', route, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--system-prompt-file', str(root / 'system.md'), '--settings', str(root / 'settings.json'), '--setting-sources', '', '--strict-mcp-config', '--disable-slash-commands', '--max-turns', '1', '--permission-mode', 'dontAsk', '--no-session-persistence', '--mcp-config', json.dumps(mcp)]
                 p = request.spawn(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding='utf-8', cwd=tmp, env=env)
                 events = queue.Queue()
                 def read():
@@ -524,19 +569,29 @@ class Client:
                         delta = native.get('delta', {})
                         if delta.get('type') == 'text_delta':
                             emitted += delta['text']
-                            yield self._chunk(kwargs['model'], {'content': delta['text']})
-                        elif delta.get('type') == 'thinking_delta':
+                            if streaming:
+                                request.delivered = True
+                                yield self._chunk(kwargs['model'], {'content': delta['text']})
+                        elif delta.get('type') == 'thinking_delta' and streaming:
+                            request.delivered = True
                             yield self._chunk(kwargs['model'], {'reasoning_content': delta['thinking']})
                 p.wait(timeout=max(.1, deadline-time.monotonic()))
                 reader.join(timeout=1)
                 if request.cancelled.is_set():
                     raise RuntimeError('Claude request cancelled')
                 admission = request.admission
+                attempts.append({'route': route, 'upstream_requests': int(admission.used), 'blocked_requests': admission.denied})
                 if admission.used:
                     if admission.status != 200 or not admission.capture.complete:
+                        rejection = admission.error_text() or native_error or ''
+                        if admission.status == 400 and context_window_error(rejection):
+                            return None, rejection
                         raise RuntimeError('Incomplete upstream response' + (': ' + native_error if native_error else ''))
                     assistants = [admission.capture.message]
                     stopped = True
+                elif native_error and context_window_error(native_error):
+                    # A loopback fixture reporting the overflow itself; real native relays the API's answer above.
+                    return None, native_error
                 native_failure_handled = admission.denied or (admission.used and assistants[0].get('stop_reason') == 'refusal')
                 if native_error and not native_failure_handled:
                     raise RuntimeError('Native API error: ' + native_error)
@@ -559,10 +614,11 @@ class Client:
                     raise RuntimeError('Native result missing complete token usage')
                 text = ''.join(b.get('text', '') for b in blocks if b.get('type') == 'text')
                 if emitted != text:
-                    if text.startswith(emitted):
-                        yield self._chunk(kwargs['model'], {'content': text[len(emitted):]})
-                    else:
+                    if not text.startswith(emitted):
                         raise RuntimeError('Native final text differs from incremental stream')
+                    if streaming:
+                        request.delivered = True
+                        yield self._chunk(kwargs['model'], {'content': text[len(emitted):]})
                 message = {'role': 'assistant', 'content': text or None, 'tool_calls': calls or None,
                            'reasoning_content': ''.join(b.get('thinking', '') for b in blocks if b.get('type') == 'thinking') or None}
                 carrier = {'type': CARRIER, 'version': 1, 'messages': assistants, 'projection': projection(message)}
@@ -571,16 +627,26 @@ class Client:
                 normalized_usage = {'prompt_tokens': inp, 'completion_tokens': usage['output_tokens'], 'total_tokens': inp + usage['output_tokens'], 'prompt_tokens_details': {'cached_tokens': usage.get('cache_read_input_tokens', 0)}, 'cache_creation_input_tokens': usage.get('cache_creation_input_tokens', 0), 'native_usage': usage,
                                     'completion_tokens_details': {'reasoning_tokens': usage.get('output_tokens_details', {}).get('thinking_tokens', 0)},
                                     'native_cost': {'total_cost_usd': final.get('total_cost_usd'), 'modelUsage': final.get('modelUsage')}}
-                normalized_usage['native_admission'] = {'upstream_requests': int(admission.used), 'blocked_requests': admission.denied, 'request_id': admission.request_id}
-                finish = 'tool_calls' if calls else ('length' if any(a.get('stop_reason') in ('max_tokens', 'model_context_window_exceeded') for a in assistants) else 'stop')
+                # Totals span every route tried for this call; `routes` records the escalation, if any.
+                normalized_usage['native_admission'] = {'upstream_requests': sum(a['upstream_requests'] for a in attempts),
+                                                        'blocked_requests': sum(a['blocked_requests'] for a in attempts),
+                                                        'request_id': admission.request_id, 'route': route,
+                                                        'routes': [a['route'] for a in attempts]}
+                truncated = any(a.get('stop_reason') == 'model_context_window_exceeded' for a in assistants)
+                finish = 'tool_calls' if calls else ('length' if truncated or any(a.get('stop_reason') == 'max_tokens' for a in assistants) else 'stop')
                 response = obj({'id': assistants[-1].get('id', 'claude-native'), 'model': kwargs['model'], 'object': 'chat.completion', 'choices': [{'index': 0, 'finish_reason': finish, 'message': message}], 'usage': normalized_usage})
                 chunk = self._chunk(kwargs['model'], {'content': None, 'tool_calls': [dict(tc, index=i) for i, tc in enumerate(calls)] or None, 'reasoning_details': [carrier]}, finish, normalized_usage)
                 chunk._response = response
-                yield chunk
+                # The output ran into the window: a truncation the caller has not seen yet may still
+                # move to the [1m] route; one that was streamed is returned as `length`.
+                return chunk, (f'{route} stopped with model_context_window_exceeded' if truncated else None)
         finally:
-            request.cancel()
-            if request.admission is not None:
-                request.admission.close()
+            # Per-spawn teardown without cancelling the request: the next route may still run.
+            if p is not None:
+                kill_process_tree(p)
+            admission, request.admission = request.admission, None
+            if admission is not None:
+                admission.close()
             if p is not None:
                 p.wait(timeout=5)
                 if reader is not None:
@@ -588,8 +654,6 @@ class Client:
                 for pipe in (p.stdin, p.stdout):
                     if pipe and not pipe.closed:
                         pipe.close()
-            with self._lock:
-                self._requests.discard(request)
 
     @staticmethod
     def _chunk(model, delta, finish=None, usage=None):

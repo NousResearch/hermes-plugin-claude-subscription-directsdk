@@ -7,10 +7,10 @@ from providers.base import ProviderProfile
 
 # Dual import: the Hermes loader imports this directory as a package; the flat test path does not.
 try:
-    from .model_catalog import ALIASES, MODEL_METADATA, native_model
+    from .model_catalog import ALIASES, MODEL_METADATA, canonical_model, context_routing_policy, context_window
     from .directsdk_setup import INSTALL_HINT, _resolve
 except ImportError:
-    from model_catalog import ALIASES, MODEL_METADATA, native_model
+    from model_catalog import ALIASES, MODEL_METADATA, canonical_model, context_routing_policy, context_window
     from directsdk_setup import INSTALL_HINT, _resolve
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,12 @@ class ClaudeOAuthDirectSDKProfile(ProviderProfile):
     model_metadata = MODEL_METADATA
 
     def get_model_context_length(self, model):
-        return self.model_metadata.get(native_model(model), {}).get('context_window')
+        # The window follows the context-routing policy: an ordinary id budgets the included 200K
+        # route under `auto`, the 1M route only when the id or the policy selects `[1m]`.
+        try:
+            return context_window(model, context_routing_policy(env=os.environ))
+        except ValueError:
+            return None  # A misspelt policy is reported by the request path, never as an invented window.
 
     def get_usage_cost(self, model, usage):
         from decimal import Decimal, InvalidOperation
@@ -86,9 +91,9 @@ profile = ClaudeOAuthDirectSDKProfile(
     process_command='claude',
     process_args=(),
     process_command_env_vars=('CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND',),
-    default_aux_model='claude-sonnet-5[1m]',
+    default_aux_model='claude-sonnet-5',
     fallback_models=tuple(MODEL_METADATA),
-    model_aliases={alias: native_model(alias) for alias in ALIASES},
+    model_aliases={alias: canonical_model(alias) for alias in ALIASES},
 )
 register_provider(profile)
 

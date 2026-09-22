@@ -44,13 +44,39 @@ def test_setup_status_reports_login_and_models_from_the_cli(profile, tmp_path):
 
     models = profile.discover_models(command=command, env=env)
     ids = [m["id"] for m in models]
-    # Native picker rows are deduplicated to their Hermes route ids (opus and opus[1m] both -> opus 1M)
-    assert ids == ["claude-sonnet-5[1m]", "claude-opus-5[1m]", "claude-haiku-4-5-20251001"]
-    assert [m["label"] for m in models] == ["Sonnet 5 for long sessions", "Opus 5", "Haiku 4.5"]
-    assert models[1]["note"] == "usage credits"
-    assert models[2]["note"] == ""
+    # Every native picker row stays its own route: `opus` (included 200K) and `opus[1m]` (metered 1M)
+    # are two rows, and only the row the CLI marks "Draws from usage credits" carries the note.
+    assert ids == ["claude-sonnet-5[1m]", "claude-opus-5", "claude-opus-5[1m]", "claude-haiku-4-5-20251001"]
+    assert [m["label"] for m in models] == ["Sonnet 5 for long sessions", "Opus 5", "Opus 5 with 1M context", "Haiku 4.5"]
+    assert [m["note"] for m in models] == ["", "", "usage credits", ""]
     # Discovery goes through the admission relay with zero upstream requests
     assert all(m["upstream_requests"] == 0 for m in models)
+
+
+def test_discovery_keeps_base_and_1m_rows_distinct_with_plan_rule_notes(profile, tmp_path):
+    """A Pro picker with both Fable rows: the plan rule marks each Fable row, the Sonnet rows stay
+    unmarked, a duplicate alias row merges into its route instead of adding a fourth Sonnet entry,
+    and a `[1m]` row for a 200K-only model is dropped rather than invented."""
+    state = {"auth": {"loggedIn": True, "authMethod": "claude.ai", "subscriptionType": "pro"},
+             "account": {"subscriptionType": "Claude Pro"},
+             "models": [
+                 {"value": "sonnet", "resolvedModel": "claude-sonnet-5", "displayName": "Sonnet", "description": "Sonnet 5 · Best balance"},
+                 {"value": "sonnet[1m]", "resolvedModel": "claude-sonnet-5[1m]", "displayName": "Sonnet (1M context)", "description": "Sonnet 5 with 1M context · Long sessions"},
+                 {"value": "default", "resolvedModel": "claude-sonnet-5", "displayName": "Default (recommended)", "description": "Sonnet 5 · Recommended"},
+                 {"value": "fable", "resolvedModel": "claude-fable-5-1", "displayName": "Fable", "description": "Fable 5.1 · Most capable"},
+                 {"value": "fable[1m]", "resolvedModel": "claude-fable-5-1[1m]", "displayName": "Fable (1M context)", "description": "Fable 5.1 with 1M context"},
+                 {"value": "haiku[1m]", "resolvedModel": "claude-haiku-4-5-20251001[1m]", "displayName": "Haiku (1M)", "description": "not a real route"},
+                 {"value": "unknown", "resolvedModel": "claude-future-9", "displayName": "Future", "description": "Future"},
+             ]}
+    command, env = _cli(tmp_path, state)
+    # Request routing preferences affect calls, not the account offers displayed in the picker.
+    env["CLAUDE_SUBSCRIPTION_DIRECTSDK_CONTEXT_ROUTING"] = "always-200k"
+    models = profile.discover_models(command=command, env=env)
+    assert [(m["id"], m["note"]) for m in models] == [
+        ("claude-sonnet-5", ""), ("claude-sonnet-5[1m]", ""),
+        ("claude-fable-5-1", "usage credits"), ("claude-fable-5-1[1m]", "usage credits")]
+    assert [m["label"] for m in models] == ["Sonnet 5", "Sonnet 5 with 1M context", "Fable 5.1", "Fable 5.1 with 1M context"]
+    assert profile.fetch_models(command=command, env=env) == [m["id"] for m in models]
 
 
 def test_logged_out_or_missing_cli_degrades_to_pinned_catalog(profile, tmp_path):
