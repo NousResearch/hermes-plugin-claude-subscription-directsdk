@@ -139,19 +139,12 @@ _BANNED_TOP_LEVEL = ('oneOf', 'allOf', 'anyOf')
 
 
 def normalize_input_schema(schema):
-    """Anthropic's tool validator hard-400s on top-level oneOf/allOf/anyOf and on the null branch of
-    nullable unions. The host normalizes both in ``agent.anthropic_message_convert``, but that path
-    only runs for ``api_mode='messages'``; this transport is ``chat_completions`` and bypasses it, so
-    a single tool carrying a conditional-required hint (``allOf``/``if``/``then``) fails the whole
-    request. Mirror the host's normalization here — the combinators are advisory, handlers
-    re-validate their own arguments, and nested unions are left untouched."""
-    try:
-        from tools.schema_sanitizer import strip_nullable_unions
-        normalized = strip_nullable_unions(schema, keep_nullable_hint=False) if schema else None
-    except ImportError:  # standalone/flat test path without the host on sys.path
-        normalized = schema
-    if not isinstance(normalized, dict):
-        return {'type': 'object', 'properties': {}}
+    """Anthropic's validator hard-400s on top-level oneOf/allOf/anyOf and on the null branch of
+    nullable unions. The host normalizes both in ``agent.anthropic_message_convert``, but only for
+    ``api_mode='messages'``; this transport is ``chat_completions``, so mirror it here. The
+    combinators are advisory (handlers re-validate their arguments); nested unions stay untouched."""
+    from tools.schema_sanitizer import strip_nullable_unions
+    normalized = strip_nullable_unions(schema, keep_nullable_hint=False)
     if any(key in normalized for key in _BANNED_TOP_LEVEL):
         normalized = {k: v for k, v in normalized.items() if k not in _BANNED_TOP_LEVEL}
         normalized.setdefault('type', 'object')
