@@ -21,15 +21,19 @@ from types import SimpleNamespace
 try:
     from .admission import Admission
     from .model_catalog import native_model, supports_adaptive_thinking
-    from .directsdk_setup import INSTALL_HINT, _resolve as resolve_claude
+    from .directsdk_setup import INSTALL_HINT, LOGGED_OUT_HINT, _resolve as resolve_claude
 except ImportError:
     from admission import Admission
     from model_catalog import native_model, supports_adaptive_thinking
-    from directsdk_setup import INSTALL_HINT, _resolve as resolve_claude
+    from directsdk_setup import INSTALL_HINT, LOGGED_OUT_HINT, _resolve as resolve_claude
 
 
 class ClaudeCodeMissing(RuntimeError):
     """The official Claude Code CLI this transport drives is not installed (or not on PATH)."""
+
+
+class ClaudeCodeLoggedOut(RuntimeError):
+    """Claude Code refused before any upstream request because it has no usable login where Hermes runs it."""
 
 
 CARRIER = 'claude-subscription-directsdk-experimental.native_assistant'
@@ -526,7 +530,7 @@ class Client:
                                 break
                 p.stdin.close()
                 assistants, results, stopped, emitted = [], [], False, ''
-                native_error = None
+                native_error = native_error_code = None
                 while True:
                     event = receive()
                     if event is None:
@@ -535,7 +539,7 @@ class Client:
                     if kind == 'assistant':
                         if event.get('error') or event.get('message', {}).get('error'):
                             detail = '\n'.join(b.get('text', '') for b in event.get('message', {}).get('content', []) if b.get('type') == 'text')
-                            native_error = detail
+                            native_error, native_error_code = detail, event.get('error')
                         else:
                             assistants.append(event['message'])
                     elif kind == 'result':
@@ -566,6 +570,9 @@ class Client:
                     stopped = True
                 native_failure_handled = admission.denied or (admission.used and assistants[0].get('stop_reason') == 'refusal')
                 if native_error and not native_failure_handled:
+                    if native_error_code == 'authentication_failed' and not admission.used:
+                        # No usable login where Hermes runs native: it refuses before any upstream request; only its /api/hello pre-flight reaches the relay.
+                        raise ClaudeCodeLoggedOut(f'{LOGGED_OUT_HINT} (native: {native_error})')
                     raise RuntimeError('Native API error: ' + native_error)
                 if len(results) != 1 or not assistants or not stopped:
                     raise RuntimeError('Incomplete native response: assistant, message_stop and one result required')
