@@ -2,6 +2,7 @@
 CONTEXT_WINDOWS = {
     'claude-sonnet-5': 1_000_000,
     'claude-haiku-4-5-20251001': 200_000,
+    'claude-opus-5-5': 1_000_000,
     'claude-opus-5': 1_000_000,
     'claude-opus-4-8': 1_000_000,
     'claude-fable-5-1': 1_000_000,
@@ -10,7 +11,7 @@ ALIASES = {
     'sonnet': 'claude-sonnet-5',
     'haiku': 'claude-haiku-4-5-20251001',
     'claude-haiku-4-5': 'claude-haiku-4-5-20251001',
-    'opus': 'claude-opus-5',
+    'opus': 'claude-opus-5-5',
     'fable': 'claude-fable-5-1',
 }
 # Haiku 4.5 rejects `thinking: {'type': 'adaptive'}` with a 400 upstream; its effort signal

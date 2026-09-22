@@ -33,8 +33,8 @@ def test_setup_status_reports_login_and_models_from_the_cli(profile, tmp_path):
              "account": {"subscriptionType": "Claude Pro"},
              "models": [
                  {"value": "sonnet[1m]", "resolvedModel": "claude-sonnet-5[1m]", "displayName": "Sonnet 5 (1M context)", "description": "Sonnet 5 for long sessions"},
-                 {"value": "opus", "resolvedModel": "claude-opus-5", "displayName": "Opus", "description": "Opus 5 · Best for everyday, complex tasks"},
-                 {"value": "opus[1m]", "resolvedModel": "claude-opus-5[1m]", "displayName": "Opus (1M context)", "description": "Opus 5 with 1M context · Draws from usage credits · $5/$25 per Mtok"},
+                 {"value": "opus", "resolvedModel": "claude-opus-5-5", "displayName": "Opus", "description": "Opus 5.5 · Best for everyday, complex tasks"},
+                 {"value": "opus[1m]", "resolvedModel": "claude-opus-5-5[1m]", "displayName": "Opus (1M context)", "description": "Opus 5.5 with 1M context · Draws from usage credits · $4/$20 per Mtok"},
                  {"value": "haiku", "resolvedModel": "claude-haiku-4-5-20251001", "displayName": "Haiku", "description": "Haiku 4.5 · Fastest for quick answers"},
              ]}
     command, env = _cli(tmp_path, state)
@@ -45,8 +45,8 @@ def test_setup_status_reports_login_and_models_from_the_cli(profile, tmp_path):
     models = profile.discover_models(command=command, env=env)
     ids = [m["id"] for m in models]
     # Native picker rows are deduplicated to their Hermes route ids (opus and opus[1m] both -> opus 1M)
-    assert ids == ["claude-sonnet-5[1m]", "claude-opus-5[1m]", "claude-haiku-4-5-20251001"]
-    assert [m["label"] for m in models] == ["Sonnet 5 for long sessions", "Opus 5", "Haiku 4.5"]
+    assert ids == ["claude-sonnet-5[1m]", "claude-opus-5-5[1m]", "claude-haiku-4-5-20251001"]
+    assert [m["label"] for m in models] == ["Sonnet 5 for long sessions", "Opus 5.5", "Haiku 4.5"]
     assert models[1]["note"] == "usage credits"
     assert models[2]["note"] == ""
     # Discovery goes through the admission relay with zero upstream requests
