@@ -22,6 +22,12 @@ for line in sys.stdin:
  r=json.loads(line); rows.append(r)
  if r.get('shouldQuery') is False:
   print(json.dumps({'type':'result','num_turns':0,'is_error':False}),flush=True)
+if os.environ.get('NATIVE_ERROR'):
+ # An error native answers itself (no login: authentication_failed), with no request to ANTHROPIC_BASE_URL.
+ code,text=os.environ['NATIVE_ERROR'].split(':',1)
+ print(json.dumps({'type':'assistant','error':code,'is_api_error_message':True,'message':{'role':'assistant','model':'<synthetic>','content':[{'type':'text','text':text}],'stop_reason':'stop_sequence'}}),flush=True)
+ print(json.dumps({'type':'result','subtype':'success','is_error':True,'num_turns':1,'result':text}),flush=True)
+ sys.exit(1)
 if os.environ.get('HANG'):
  if os.environ.get('PID_FILE'):
   # Real native is a shim -> node tree; cancellation must take the grandchild down with it.
@@ -164,6 +170,27 @@ class Contract(unittest.TestCase):
                 msg["content"] = "middleware changed"
                 self.assertEqual(client.chat.completions.create(**req).choices[0].message.content, "done")
             client.close()
+
+    def test_logged_out_native_raises_the_login_hint(self):
+        import directsdk
+        from directsdk_setup import LOGGED_OUT_HINT
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = self.client(tmp, NATIVE_ERROR="authentication_failed:Not logged in \u00b7 Please run /login")
+            for streaming in (False, True):
+                with self.assertRaises(directsdk.ClaudeCodeLoggedOut) as raised:
+                    result = client.chat.completions.create(**self.request(), stream=streaming)
+                    if streaming:
+                        list(result)
+                self.assertIn(LOGGED_OUT_HINT, str(raised.exception))
+                self.assertIn("Not logged in", str(raised.exception))
+            client.close()
+            # Any other error native answers itself keeps its own text.
+            other = self.client(tmp, NATIVE_ERROR="unknown:API Error: something else")
+            with self.assertRaisesRegex(RuntimeError, "^Native API error: API Error: something else$") as raised:
+                other.chat.completions.create(**self.request())
+            self.assertNotIsInstance(raised.exception, directsdk.ClaudeCodeLoggedOut)
+            other.close()
 
     def test_fail_closed_and_cancellation(self):
         import directsdk
