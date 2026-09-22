@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 import copy
 import json
 import math
@@ -10,6 +11,7 @@ from pathlib import Path
 import queue
 import re
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -369,6 +371,8 @@ class Client:
         # Hermes snapshots routing metadata from client-shaped objects; this is not a credential.
         self.api_key = 'external-process'
         self.base_url = 'process://claude-subscription-directsdk-experimental'
+        self._ws = None
+        self._ws_lock = threading.Lock()
         self.env = dict(env) if env is not None else None
         source_env = self.env if self.env is not None else os.environ
         command = command or source_env.get('CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND') or 'claude'
@@ -394,6 +398,24 @@ class Client:
                 stream.close()
             else:
                 request.cancel()
+        if self._ws:
+            shutil.rmtree(self._ws, ignore_errors=True)
+            self._ws = None
+
+    @contextmanager
+    def _stable_tmp(self):
+        """PROTOTYPE: one workspace per client so the CLI's injected working-directory
+        line is byte-identical across every request (prompt-cache prefix stability).
+        Serializes requests on this client; per-request files are rewritten on entry."""
+        with self._ws_lock:
+            if self._ws is None:
+                self._ws = tempfile.mkdtemp(prefix='claude-directsdk-')
+            for name in ('system.md', 'settings.json', 'tools.json'):
+                try:
+                    os.unlink(os.path.join(self._ws, name))
+                except FileNotFoundError:
+                    pass
+            yield self._ws
 
     def create(self, **kwargs):
         # Hermes' auxiliary seam returns this same object and awaits create.
@@ -445,7 +467,7 @@ class Client:
                 raise ValueError('timeout must be positive seconds')
             # Windows refuses to delete a directory a dying child still holds as cwd; the owner thread's
             # p.wait() below reaps before we leave the block, and stragglers must not fail the request.
-            with tempfile.TemporaryDirectory(prefix='claude-directsdk-', ignore_cleanup_errors=True) as tmp:
+            with self._stable_tmp() as tmp:
                 root = Path(tmp)
                 (root / 'tools.json').write_text(json.dumps(manifest), encoding='utf-8')
                 mcp = {'mcpServers': {'hermes': {'command': sys.executable, 'args': [str(Path(__file__).with_name('inert_mcp.py')), str(root / 'tools.json')]}}}
