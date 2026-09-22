@@ -536,7 +536,9 @@ class Client:
                 admission = request.admission
                 if admission.used:
                     if admission.status != 200 or not admission.capture.complete:
-                        raise RuntimeError('Incomplete upstream response' + (': ' + native_error if native_error else ''))
+                        # Native's last error is the admission denial; name the first attempt's outcome so reports are diagnosable.
+                        first = f'first upstream attempt: status {admission.status}, capture ' + ('complete' if admission.capture.complete else 'incomplete') + (f', relay failure {admission.failure}' if admission.failure else '') + f', native retries denied: {admission.denied}'
+                        raise RuntimeError(f'Incomplete upstream response ({first})' + (': ' + native_error if native_error else ''))
                     assistants = [admission.capture.message]
                     stopped = True
                 native_failure_handled = admission.denied or (admission.used and assistants[0].get('stop_reason') == 'refusal')
