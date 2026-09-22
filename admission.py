@@ -92,12 +92,22 @@ class Admission:
         self.status = None
         self.failure = None
         self.capture = Capture()
+        self.error_body = b''
         self.prefix = '/admit/' + secrets.token_urlsafe(32)
         self.server = HTTPServer(('127.0.0.1', 0), Handler)
         self.server.admission = self
         self.url = f'http://127.0.0.1:{self.server.server_port}' + self.prefix
         self.thread = threading.Thread(target=self.server.serve_forever, kwargs={'poll_interval':.05}, daemon=True)
         self.thread.start()
+
+    def error_text(self):
+        """The upstream's own message for a non-200 answer, '' when none was captured."""
+        text = self.error_body.decode('utf-8', errors='replace')
+        try:
+            message = json.loads(text)['error']['message']
+        except (ValueError, KeyError, TypeError):
+            return text
+        return message if isinstance(message, str) else text
 
     def abort(self):
         with self.lock:
@@ -174,6 +184,8 @@ class Handler(BaseHTTPRequestHandler):
                     break
                 if response.status == 200:
                     gate.capture.feed(chunk)
+                elif len(gate.error_body) < 65536:
+                    gate.error_body += chunk  # The rejection reason ("prompt is too long", "adaptive thinking is not supported"), bounded.
                 self.wfile.write(chunk)
                 self.wfile.flush()
         except (OSError, http.client.HTTPException, ValueError, KeyError, IndexError, TypeError) as exc:

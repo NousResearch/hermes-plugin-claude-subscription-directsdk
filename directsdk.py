@@ -483,7 +483,8 @@ class Client:
                         except queue.Empty:
                             continue
                         if isinstance(event, Exception):
-                            raise RuntimeError('Invalid native stream-json output') from event
+                            # The offending stdout line is the whole diagnosis (a shim banner, a stray print); keep it.
+                            raise RuntimeError('Invalid native stream-json output: ' + repr(getattr(event, 'doc', '')[:300])) from event
                         deadline = time.monotonic() + timeout
                         return event
                 for index, frame in enumerate(frames):
@@ -536,6 +537,8 @@ class Client:
                     if admission.status != 200 or not admission.capture.complete:
                         # Native's last error is the admission denial; name the first attempt's outcome so reports are diagnosable.
                         first = f'first upstream attempt: status {admission.status}, capture ' + ('complete' if admission.capture.complete else 'incomplete') + (f', relay failure {admission.failure}' if admission.failure else '') + f', native retries denied: {admission.denied}'
+                        if admission.error_text():
+                            first += ', upstream said: ' + admission.error_text()[:500]
                         raise RuntimeError(f'Incomplete upstream response ({first})' + (': ' + native_error if native_error else ''))
                     assistants = [admission.capture.message]
                     stopped = True
