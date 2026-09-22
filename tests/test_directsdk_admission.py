@@ -137,14 +137,25 @@ def test_incomplete_upstream_error_names_the_first_attempt(tmp_path):
         def log_message(self, *args): pass
         def do_POST(self):
             self.rfile.read(int(self.headers['Content-Length']))
-            body=b'{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}'
+            body=b'{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 213000 tokens > 200000 maximum"}}'
             self.send_response(529); self.send_header('Content-Type','application/json'); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)
     peer=ThreadingHTTPServer(('127.0.0.1',0),Peer)
     thread=threading.Thread(target=peer.serve_forever,daemon=True); thread.start()
     native=tmp_path/'native.py'; native.write_text(NATIVE)
     client=directsdk.Client(command=[sys.executable,str(native)],env={'PATH':os.defpath,'HOME':str(tmp_path),'ANTHROPIC_BASE_URL':f'http://127.0.0.1:{peer.server_port}'})
     try:
-        with pytest.raises(RuntimeError, match=r'status 529, capture incomplete'):
+        with pytest.raises(RuntimeError, match=r'status 529, capture incomplete.*upstream said: prompt is too long: 213000 tokens'):
             client.create(model='sonnet',messages=[{'role':'user','content':'fixture'}])
     finally:
         client.close(); peer.shutdown(); thread.join(); peer.server_close()
+
+
+def test_invalid_stream_json_error_names_the_offending_line(tmp_path):
+    """A native that prints a non-JSON stdout line (a shim banner) fails with that line in the error, not a bare label."""
+    native=tmp_path/'native.py'; native.write_text("import sys\nprint('mise WARN tool not activated')\nsys.exit(0)\n")
+    client=directsdk.Client(command=[sys.executable,str(native)],env={'PATH':os.defpath,'HOME':str(tmp_path),'ANTHROPIC_BASE_URL':'http://127.0.0.1:9'})
+    try:
+        with pytest.raises(RuntimeError, match=r"Invalid native stream-json output: 'mise WARN tool not activated"):
+            client.create(model='sonnet',messages=[{'role':'user','content':'fixture'}])
+    finally:
+        client.close()
