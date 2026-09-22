@@ -44,11 +44,10 @@ def test_setup_status_reports_login_and_models_from_the_cli(profile, tmp_path):
 
     models = profile.discover_models(command=command, env=env)
     ids = [m["id"] for m in models]
-    # Native picker rows are deduplicated to their Hermes route ids (opus and opus[1m] both -> opus 1M)
-    assert ids == ["claude-sonnet-5[1m]", "claude-opus-5[1m]", "claude-haiku-4-5-20251001"]
-    assert [m["label"] for m in models] == ["Sonnet 5 for long sessions", "Opus 5", "Haiku 4.5"]
-    assert models[1]["note"] == "usage credits"
-    assert models[2]["note"] == ""
+    # Each native picker row is its own Hermes route: the included `opus` and the credit-metered `opus[1m]` stay apart.
+    assert ids == ["claude-sonnet-5[1m]", "claude-opus-5", "claude-opus-5[1m]", "claude-haiku-4-5-20251001"]
+    assert [m["label"] for m in models] == ["Sonnet 5 for long sessions", "Opus 5", "Opus 5 with 1M context", "Haiku 4.5"]
+    assert [m["note"] for m in models] == ["", "", "usage credits", ""]
     # Discovery goes through the admission relay with zero upstream requests
     assert all(m["upstream_requests"] == 0 for m in models)
 

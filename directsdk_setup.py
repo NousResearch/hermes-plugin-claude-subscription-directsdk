@@ -104,10 +104,12 @@ def discover_models(command=None, env=None, timeout=40):
     credit_billed_on_plan = {"claude-fable-5-1"} if plan and "max" not in plan else set()
     routes = {}
     for row in native:
-        base = str(row.get("resolvedModel") or row.get("value") or "").removesuffix("[1m]")
+        raw = str(row.get("resolvedModel") or row.get("value") or "")
+        base = raw.removesuffix("[1m]")
         if base not in CONTEXT_WINDOWS:
             continue
-        route = native_model(base)
+        # `opus` (included 200K) and `opus[1m]` (usage credits) are distinct rows with their own notes.
+        route = native_model(raw)
         # Model names, not the native "Default (recommended)" alias row.
         label = str(row.get("description") or "").split("·")[0].strip() or route
         entry = routes.setdefault(route, {"id": route, "label": label, "note": "", "upstream_requests": upstream})

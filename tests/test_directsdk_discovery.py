@@ -58,7 +58,8 @@ def test_native_alias_metadata_is_bounded_and_never_claims_subscription_invoice(
         metadata = profile.model_metadata[alias]
         assert metadata["canonical_model"].startswith("claude-")
         assert 0 < profile.get_model_context_length(alias) <= metadata["context_window"]
-        assert profile.get_model_context_length(metadata["canonical_model"]) == profile.get_model_context_length(alias)
+        # The plain canonical id is the included route; only an explicit `[1m]` id budgets the 1M window.
+        assert profile.get_model_context_length(metadata["canonical_model"]) == min(metadata["context_window"], 200_000)
         assert get_model_context_length(alias, provider=profile.name, base_url=profile.base_url) == profile.get_model_context_length(alias)
         assert get_model_context_length(alias, provider=profile.name, config_context_length=123456) == 123456
         cost = estimate_usage_cost(alias, CanonicalUsage(input_tokens=1000, output_tokens=100),

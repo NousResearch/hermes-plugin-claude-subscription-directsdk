@@ -86,7 +86,7 @@ profile = ClaudeOAuthDirectSDKProfile(
     process_command='claude',
     process_args=(),
     process_command_env_vars=('CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND',),
-    default_aux_model='claude-sonnet-5[1m]',
+    default_aux_model='claude-sonnet-5',
     fallback_models=tuple(MODEL_METADATA),
     model_aliases={alias: native_model(alias) for alias in ALIASES},
 )
