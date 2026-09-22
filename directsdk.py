@@ -15,6 +15,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 import weakref
 from types import SimpleNamespace
 
@@ -352,6 +353,7 @@ class Client:
         command = command or source_env.get('CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND') or 'claude'
         self.command = ([command] if isinstance(command, str) else list(command)) + list(args or [])
         self.timeout = timeout if isinstance(timeout, (int, float)) else 180
+        self.session_id = str(uuid.uuid4())
         self._lock, self._requests, self._closed = threading.Lock(), set(), False
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
 
@@ -453,7 +455,7 @@ class Client:
                 if 'max_tokens' in json.loads(body):
                     env['CLAUDE_CODE_MAX_OUTPUT_TOKENS'] = str(json.loads(body)['max_tokens'])
                 # The resolved path matters on Windows: CreateProcess finds claude.exe on PATH but not the npm claude.cmd shim.
-                command = resolved + ['-p', '--model', native_model(kwargs['model']), '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--system-prompt-file', str(root / 'system.md'), '--settings', str(root / 'settings.json'), '--setting-sources', '', '--strict-mcp-config', '--disable-slash-commands', '--max-turns', '1', '--permission-mode', 'dontAsk', '--no-session-persistence', '--mcp-config', json.dumps(mcp)]
+                command = resolved + ['-p', '--model', native_model(kwargs['model']), '--session-id', self.session_id, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--system-prompt-file', str(root / 'system.md'), '--settings', str(root / 'settings.json'), '--setting-sources', '', '--strict-mcp-config', '--disable-slash-commands', '--max-turns', '1', '--permission-mode', 'dontAsk', '--no-session-persistence', '--mcp-config', json.dumps(mcp)]
                 p = request.spawn(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding='utf-8', cwd=tmp, env=env)
                 events = queue.Queue()
                 def read():

@@ -6,6 +6,7 @@ import sys
 import tempfile
 import time
 import unittest
+import uuid
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +18,9 @@ if os.environ.get('PID_FILE'):
  open(os.environ['PID_FILE'],'w').write(str(os.getpid()))
 if '--version' in sys.argv:
  print('2.1.263 (Claude Code)'); sys.exit()
+if os.environ.get('SESSION_FILE'):
+ with open(os.environ['SESSION_FILE'],'a') as f:
+  f.write(sys.argv[sys.argv.index('--session-id')+1]+'\n')
 rows=[]
 for line in sys.stdin:
  r=json.loads(line); rows.append(r)
@@ -102,7 +106,8 @@ class Contract(unittest.TestCase):
 
     def test_canonical_request_lifecycle(self):
         with tempfile.TemporaryDirectory() as tmp:
-            client = self.client(tmp)
+            sessions = Path(tmp) / "sessions"
+            client = self.client(tmp, SESSION_FILE=str(sessions))
             self.assertEqual(client.api_key, "external-process")
             self.assertEqual(client.base_url, "process://claude-subscription-directsdk-experimental")
             for streaming in (False, True):
@@ -163,6 +168,13 @@ class Contract(unittest.TestCase):
                 )
                 msg["content"] = "middleware changed"
                 self.assertEqual(client.chat.completions.create(**req).choices[0].message.content, "done")
+            recorded = sessions.read_text().splitlines()
+            self.assertGreater(len(recorded), 1)
+            self.assertEqual(set(recorded), {client.session_id})
+            self.assertEqual(str(uuid.UUID(client.session_id)), client.session_id)
+            other = self.client(tmp)
+            self.assertNotEqual(other.session_id, client.session_id)
+            other.close()
             client.close()
 
     def test_fail_closed_and_cancellation(self):
