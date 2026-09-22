@@ -159,3 +159,47 @@ def test_invalid_stream_json_error_names_the_offending_line(tmp_path):
             client.create(model='sonnet',messages=[{'role':'user','content':'fixture'}])
     finally:
         client.close()
+
+
+def test_explicit_subscription_upstream_routes_admission_without_weakening_generic_guard(tmp_path):
+    """The normal Hermes path may opt into a trusted gateway without inheriting ANTHROPIC_BASE_URL."""
+    calls = []
+    usage = {'input_tokens':0, 'output_tokens':0, 'cache_read_input_tokens':0, 'cache_creation_input_tokens':0}
+    class Peer(BaseHTTPRequestHandler):
+        def log_message(self, *args): pass
+        def do_POST(self):
+            calls.append(self.path)
+            self.rfile.read(int(self.headers['Content-Length']))
+            self.send_response(200); self.send_header('Content-Type','text/event-stream'); self.end_headers()
+            events = [
+                {'type':'message_start','message':{'id':'first','role':'assistant','model':'sonnet','content':[], 'usage':usage}},
+                {'type':'content_block_start','index':0,'content_block':{'type':'text','text':''}},
+                {'type':'content_block_delta','index':0,'delta':{'type':'text_delta','text':'FIRST'}},
+                {'type':'content_block_stop','index':0},
+                {'type':'message_delta','delta':{'stop_reason':'end_turn'},'usage':usage},
+                {'type':'message_stop'},
+            ]
+            self.wfile.write(''.join('data: '+json.dumps(e)+'\n\n' for e in events).encode())
+    peer=ThreadingHTTPServer(('127.0.0.1',0),Peer)
+    thread=threading.Thread(target=peer.serve_forever,daemon=True); thread.start()
+    native=tmp_path/'native.py'; native.write_text(NATIVE)
+    from unittest.mock import patch
+    clean_env = dict(os.environ)
+    for key in ('ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_FOUNDRY_API_KEY',
+                'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'):
+        clean_env.pop(key, None)
+    clean_env['CLAUDE_SUBSCRIPTION_DIRECTSDK_UPSTREAM'] = f'http://127.0.0.1:{peer.server_port}'
+    client=directsdk.Client(command=[sys.executable,str(native)])
+    try:
+        with patch.dict(os.environ, clean_env, clear=True):
+            result=client.create(model='sonnet',messages=[{'role':'user','content':'fixture'}])
+        assert calls == ['/v1/messages']
+        assert result.choices[0].message.content == 'FIRST'
+
+        rejected = dict(clean_env)
+        rejected['ANTHROPIC_BASE_URL'] = 'https://example.invalid'
+        with patch.dict(os.environ, rejected, clear=True):
+            with pytest.raises(ValueError, match='ANTHROPIC_BASE_URL'):
+                client.create(model='sonnet',messages=[{'role':'user','content':'fixture'}])
+    finally:
+        client.close(); peer.shutdown(); thread.join(); peer.server_close()
