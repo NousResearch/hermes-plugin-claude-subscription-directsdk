@@ -6,6 +6,10 @@ CONTEXT_WINDOWS = {
     'claude-opus-4-8': 1_000_000,
     'claude-fable-5-1': 1_000_000,
 }
+# Families that 400 on ``thinking: {"type": "disabled"}`` (the same contract Hermes core keeps
+# in agent/anthropic_adapter.py). A caller's disable is omitted for them: thinking stays on at
+# the model's default, which beats a dead request.
+MANDATORY_THINKING = ('claude-fable',)
 ALIASES = {
     'sonnet': 'claude-sonnet-5',
     'haiku': 'claude-haiku-4-5-20251001',
@@ -13,6 +17,16 @@ ALIASES = {
     'opus': 'claude-opus-5',
     'fable': 'claude-fable-5-1',
 }
+
+
+def canonical_model(model):
+    base = model.removesuffix('[1m]')
+    return ALIASES.get(base, base)
+
+
+def accepts_thinking_disable(model):
+    canonical = canonical_model(model)
+    return not any(canonical.startswith(prefix) for prefix in MANDATORY_THINKING)
 
 
 def native_model(model):
