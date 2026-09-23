@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import queue
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -375,6 +376,7 @@ class Client:
         self.command = ([command] if isinstance(command, str) else list(command)) + list(args or [])
         self.timeout = timeout if isinstance(timeout, (int, float)) else 180
         self._lock, self._requests, self._closed = threading.Lock(), set(), False
+        self._cwd = None
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
 
     def cancel(self):
@@ -394,6 +396,16 @@ class Client:
                 stream.close()
             else:
                 request.cancel()
+        if self._cwd is not None:
+            shutil.rmtree(self._cwd, ignore_errors=True)
+
+    def _workdir(self):
+        """One empty cwd per client. Native >= ~2.1.276 writes `Working directory: <cwd>` into every
+        request, so a fresh tempdir per request moved the prompt-cache prefix every round (#14)."""
+        with self._lock:
+            if self._cwd is None:
+                self._cwd = tempfile.mkdtemp(prefix='claude-directsdk-cwd-')
+            return self._cwd
 
     def create(self, **kwargs):
         # Hermes' auxiliary seam returns this same object and awaits create.
@@ -443,8 +455,8 @@ class Client:
             timeout = getattr(timeout, 'read', timeout)
             if not isinstance(timeout, (int, float)) or timeout <= 0:
                 raise ValueError('timeout must be positive seconds')
-            # Windows refuses to delete a directory a dying child still holds as cwd; the owner thread's
-            # p.wait() below reaps before we leave the block, and stragglers must not fail the request.
+            # Per-request files only; native runs in the client-stable cwd below. Windows stragglers
+            # can still hold these open for a moment, and cleanup must not fail the request.
             with tempfile.TemporaryDirectory(prefix='claude-directsdk-', ignore_cleanup_errors=True) as tmp:
                 root = Path(tmp)
                 (root / 'tools.json').write_text(json.dumps(manifest), encoding='utf-8')
@@ -476,7 +488,7 @@ class Client:
                     env['CLAUDE_CODE_MAX_OUTPUT_TOKENS'] = str(json.loads(body)['max_tokens'])
                 # The resolved path matters on Windows: CreateProcess finds claude.exe on PATH but not the npm claude.cmd shim.
                 command = resolved + ['-p', '--model', native_model(kwargs['model']), '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--system-prompt-file', str(root / 'system.md'), '--settings', str(root / 'settings.json'), '--setting-sources', '', '--strict-mcp-config', '--disable-slash-commands', '--max-turns', '1', '--permission-mode', 'dontAsk', '--no-session-persistence', '--mcp-config', json.dumps(mcp)]
-                p = request.spawn(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding='utf-8', cwd=tmp, env=env)
+                p = request.spawn(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding='utf-8', cwd=self._workdir(), env=env)
                 events = queue.Queue()
                 def read():
                     try:
