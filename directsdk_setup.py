@@ -115,8 +115,12 @@ def discover_models(command=None, env=None, timeout=40):
             continue
         route = native_model(base)
         pinned = route in MODEL_METADATA
-        if not pinned and base in long_context:
-            route = base + "[1m]"
+        if not pinned:
+            # A `value` the CLI did not resolve (`default`, `best`) is an alias row, not a model.
+            if not row.get("resolvedModel"):
+                continue
+            if base in long_context:
+                route = base + "[1m]"
         # Model names, not the native "Default (recommended)" alias row.
         label = str(row.get("description") or "").split("·")[0].strip() or route
         entry = routes.setdefault(route, {"id": route, "label": label, "note": "" if pinned else "unpinned",
