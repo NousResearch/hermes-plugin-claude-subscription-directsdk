@@ -17,15 +17,45 @@ INJECTION_ANCHORS = ('<system-reminder>', "Today's date is", 'userEmail:')
 
 
 def _is_moving_injection(block):
-    """The CLI's per-request context block (date / userEmail reminder), not user content
-    that merely quotes one: anchored at the start of the block. Native >= 2.1.276 wraps it
-    in ``<system-reminder>``; some model-specific builds (e.g. claude-opus-5-5 on
-    2.1.280.d84) emit the date line unwrapped."""
-    text = block.get('text')
+    """The CLI's per-request context block (date / userEmail reminder), heuristically
+    distinguished from content that quotes one. Native >= 2.1.276 wraps it in
+    ``<system-reminder>``; some model-specific builds (e.g. claude-opus-5-5 on
+    2.1.280.d84) emit the date line unwrapped. It is either the whole block (anchored at
+    the start) or, in tool rounds, appended to the end of the newest string
+    ``tool_result``; list content is checked per inner block."""
     if block.get('type') == 'tool_result':
         inner = block.get('content')
-        text = inner if isinstance(inner, str) else json.dumps(inner or '')
-    return isinstance(text, str) and any(text.startswith(anchor) for anchor in INJECTION_ANCHORS)
+        if isinstance(inner, list):
+            return any(_is_moving_injection(b) for b in inner if isinstance(b, dict))
+        return _starts_or_ends_with_injection(inner)
+    return _starts_or_ends_with_injection(block.get('text'))
+
+
+REMINDER_OPEN, REMINDER_CLOSE = '<system-reminder>', '</system-reminder>'
+# Observed body openings of the native per-request reminder (2.1.280): the userEmail
+# context preamble, or the date line. Anchored at the body start, not a substring.
+INJECTION_BODY_PREFIXES = ("As you answer the user's questions, you can use the following context:",
+                           "Today's date is")
+
+
+def _starts_or_ends_with_injection(text):
+    """True when text starts with an injection anchor, or ends with one complete
+    ``<system-reminder>`` segment whose body opens like the native reminder (observed:
+    native appends it to string tool_result content). Linear, no regex. A tool output that
+    ends with an exact copy of that reminder is indistinguishable without provenance; the
+    cost of a wrong guess is cache hits only, content is never changed."""
+    if not isinstance(text, str):
+        return False
+    if text.startswith(INJECTION_ANCHORS):
+        return True
+    tail = text.rstrip()
+    if not tail.endswith(REMINDER_CLOSE):
+        return False
+    start = tail.rfind(REMINDER_OPEN)
+    if start < 0:
+        return False
+    body = tail[start + len(REMINDER_OPEN):-len(REMINDER_CLOSE)]
+    return REMINDER_CLOSE not in body and body.lstrip().startswith(INJECTION_BODY_PREFIXES)
 
 
 def relocate_message_breakpoint(payload):
@@ -59,7 +89,7 @@ def relocate_message_breakpoint(payload):
         if injection is None or marked[0] < injection:
             return payload
         target = next(((i, j) for i, j, block in reversed(blocks)
-                       if (i, j) < injection and block.get('type') != 'thinking'), None)
+                       if (i, j) < injection and block.get('type') not in ('thinking', 'redacted_thinking')), None)
         if target is None:
             return payload
         by_position = {(i, j): block for i, j, block in blocks}
