@@ -13,89 +13,53 @@ import threading
 from urllib.parse import urlsplit
 
 
-INJECTION_ANCHORS = ('<system-reminder>', "Today's date is", 'userEmail:')
+UNCACHEABLE = ('thinking', 'redacted_thinking')
 
 
-def _is_moving_injection(block):
-    """The CLI's per-request context block (date / userEmail reminder), heuristically
-    distinguished from content that quotes one. Native >= 2.1.276 wraps it in
-    ``<system-reminder>``; some model-specific builds (e.g. claude-opus-5-5 on
-    2.1.280.d84) emit the date line unwrapped. It is either the whole block (anchored at
-    the start) or, in tool rounds, appended to the end of the newest string
-    ``tool_result``; list content is checked per inner block."""
-    if block.get('type') == 'tool_result':
-        inner = block.get('content')
-        if isinstance(inner, list):
-            return any(_is_moving_injection(b) for b in inner if isinstance(b, dict))
-        return _starts_or_ends_with_injection(inner)
-    return _starts_or_ends_with_injection(block.get('text'))
+def _plain(block):
+    return {k: v for k, v in block.items() if k != 'cache_control'} if isinstance(block, dict) else block
 
 
-REMINDER_OPEN, REMINDER_CLOSE = '<system-reminder>', '</system-reminder>'
-# Observed body openings of the native per-request reminder (2.1.280): the userEmail
-# context preamble, or the date line. Anchored at the body start, not a substring.
-INJECTION_BODY_PREFIXES = ("As you answer the user's questions, you can use the following context:",
-                           "Today's date is")
+def pin_message_breakpoint(payload, queried):
+    """Keep the single message ``cache_control`` on content the next request replays unchanged.
 
+    Native attaches per-request context (today's date, the account-email reminder, whatever a
+    later CLI adds) to the turn it answers and puts the message breakpoint on or after it. The
+    next request replays that turn without it, so the cached prefix never recurs and every
+    tool round re-writes the whole history (issue #14, second cause).
 
-def _starts_or_ends_with_injection(text):
-    """True when text starts with an injection anchor, or ends with one complete
-    ``<system-reminder>`` segment whose body opens like the native reminder (observed:
-    native appends it to string tool_result content). Linear, no regex. A tool output that
-    ends with an exact copy of that reminder is indistinguishable without provenance; the
-    cost of a wrong guess is cache hits only, content is never changed."""
-    if not isinstance(text, str):
-        return False
-    if text.startswith(INJECTION_ANCHORS):
-        return True
-    tail = text.rstrip()
-    if not tail.endswith(REMINDER_CLOSE):
-        return False
-    start = tail.rfind(REMINDER_OPEN)
-    if start < 0:
-        return False
-    body = tail[start + len(REMINDER_OPEN):-len(REMINDER_CLOSE)]
-    return REMINDER_CLOSE not in body and body.lstrip().startswith(INJECTION_BODY_PREFIXES)
-
-
-def relocate_message_breakpoint(payload):
-    """Move the single message ``cache_control`` off the CLI's moving per-request injection.
-
-    Native >= 2.1.276 appends a ``<system-reminder>`` (``Today's date is ...``, userEmail)
-    to the newest turn and puts the message cache breakpoint on or after it. The next
-    request moves that injection to the new newest turn, so the cached prefix never
-    reappears and every tool round re-writes the whole history (issue #14, second cause;
-    design by @robbyczgw-cla). When the only message breakpoint sits at or after the first
-    CLI injection following the last assistant message, move it to the last cacheable
-    (non-thinking) block before that injection. Content is never changed — only the
-    ``cache_control`` directive moves — so a wrong heuristic guess costs cache hits, never
-    correctness. Every other payload, including anything that fails to parse, forwards
-    unchanged."""
+    What does recur is known without reading native's text: everything through the last
+    assistant message, plus the leading blocks of the newest turn that equal the frame Hermes
+    queried. The first block native added or changed ends that span, so a reworded, moved or
+    new annotation cannot reopen this bug. The breakpoint moves back to the last cacheable
+    block of the span; it never moves later, content is never changed, and any payload that
+    does not parse forwards as is."""
+    if not queried:
+        return payload
     try:
         body = json.loads(payload)
-        messages = body.get('messages')
-        if not isinstance(messages, list):
-            return payload
-        blocks = [(i, j, block) for i, msg in enumerate(messages)
-                  if isinstance(msg, dict) and isinstance(msg.get('content'), list)
-                  for j, block in enumerate(msg['content']) if isinstance(block, dict)]
-        marked = [(i, j) for i, j, block in blocks if 'cache_control' in block]
+        messages = body['messages']
+        blocks = [(i, j, b) for i, m in enumerate(messages) if isinstance(m.get('content'), list)
+                  for j, b in enumerate(m['content'])]
+        marked = [(i, j, b) for i, j, b in blocks if isinstance(b, dict) and 'cache_control' in b]
         if len(marked) != 1:
             return payload
-        last_assistant = max((i for i, msg in enumerate(messages)
-                              if isinstance(msg, dict) and msg.get('role') == 'assistant'), default=-1)
-        injection = next(((i, j) for i, j, block in blocks
-                          if i > last_assistant and _is_moving_injection(block)), None)
-        if injection is None or marked[0] < injection:
+        last = max((i for i, m in enumerate(messages) if m.get('role') == 'assistant'), default=-1)
+        stable = [(i, j, b) for i, j, b in blocks if i <= last]
+        newest = messages[last + 1] if last + 1 < len(messages) else {}
+        if newest.get('role') == 'user' and isinstance(newest.get('content'), list):
+            for j, (sent, host) in enumerate(zip(newest['content'], queried)):
+                if _plain(sent) != _plain(host):
+                    break
+                stable.append((last + 1, j, sent))
+        target = next(((i, j, b) for i, j, b in reversed(stable)
+                       if isinstance(b, dict) and b.get('type') not in UNCACHEABLE), None)
+        i, j, block = marked[0]
+        if target is None or (target[0], target[1]) >= (i, j):
             return payload
-        target = next(((i, j) for i, j, block in reversed(blocks)
-                       if (i, j) < injection and block.get('type') not in ('thinking', 'redacted_thinking')), None)
-        if target is None:
-            return payload
-        by_position = {(i, j): block for i, j, block in blocks}
-        by_position[target]['cache_control'] = by_position[marked[0]].pop('cache_control')
-        return json.dumps(body, ensure_ascii=False).encode()
-    except (ValueError, TypeError):
+        target[2]['cache_control'] = block.pop('cache_control')
+        return json.dumps(body, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+    except (ValueError, TypeError, KeyError, AttributeError, IndexError):
         return payload
 
 
@@ -161,8 +125,9 @@ class Capture:
 
 
 class Admission:
-    def __init__(self, upstream, timeout):
+    def __init__(self, upstream, timeout, queried=None):
         self.upstream = urlsplit(upstream)
+        self.queried = queried
         host = self.upstream.hostname
         try:
             local = ipaddress.ip_address(host).is_loopback
@@ -240,7 +205,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.connection.settimeout(gate.timeout)
             payload = self.rfile.read(int(self.headers['Content-Length']))
-            payload = relocate_message_breakpoint(payload)
+            payload = pin_message_breakpoint(payload, gate.queried)
             target = gate.upstream
             if target.scheme == 'https':
                 conn = http.client.HTTPSConnection(target.hostname, target.port, timeout=gate.timeout, context=ssl.create_default_context())
