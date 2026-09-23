@@ -13,10 +13,10 @@ import tempfile
 
 try:
     from .admission import Admission
-    from .model_catalog import CONTEXT_WINDOWS, native_model
+    from .model_catalog import MODEL_METADATA, native_model
 except ImportError:
     from admission import Admission
-    from model_catalog import CONTEXT_WINDOWS, native_model
+    from model_catalog import MODEL_METADATA, native_model
 
 INSTALL_HINT = ("Claude Code is not installed (no `claude` on PATH). Install it with "
                 "`npm install -g @anthropic-ai/claude-code` or set CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND to the binary.")
@@ -102,15 +102,26 @@ def discover_models(command=None, env=None, timeout=40):
     # says so at request time, so apply the documented plan rule here.
     plan = str((response.get("response", {}).get("account") or {}).get("subscriptionType") or "").lower()
     credit_billed_on_plan = {"claude-fable-5-1"} if plan and "max" not in plan else set()
+    # The pinned table adds metadata (1M route, window, aliases) to the models it knows; it never
+    # decides visibility, so a model the CLI ships before the table does is listed the same day.
+    announced = [str(row.get("resolvedModel") or row.get("value") or "") for row in native]
+    # An unpinned model gets [1m] only from the CLI itself; offered both ways it collapses onto [1m]
+    # like the pinned 1M models (behind the relay the suffix is the client-side window selection, #8).
+    long_context = {model.removesuffix("[1m]") for model in announced if model.endswith("[1m]")}
     routes = {}
-    for row in native:
-        base = str(row.get("resolvedModel") or row.get("value") or "").removesuffix("[1m]")
-        if base not in CONTEXT_WINDOWS:
+    for row, model in zip(native, announced):
+        base = model.removesuffix("[1m]")
+        if not base:
             continue
         route = native_model(base)
+        pinned = route in MODEL_METADATA
+        if not pinned and base in long_context:
+            route = base + "[1m]"
         # Model names, not the native "Default (recommended)" alias row.
         label = str(row.get("description") or "").split("·")[0].strip() or route
-        entry = routes.setdefault(route, {"id": route, "label": label, "note": "", "upstream_requests": upstream})
+        entry = routes.setdefault(route, {"id": route, "label": label, "note": "" if pinned else "unpinned",
+                                          "upstream_requests": upstream})
         if "usage credit" in str(row.get("description") or "").lower() or base in credit_billed_on_plan:
-            entry["note"] = "usage credits"
+            # The billing warning reads first; an unpinned row keeps its marker after it.
+            entry["note"] = "usage credits" if pinned else "usage credits · unpinned"
     return list(routes.values()) or None
