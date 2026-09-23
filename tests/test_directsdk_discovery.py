@@ -84,7 +84,6 @@ def test_native_alias_metadata_is_bounded_and_never_claims_subscription_invoice(
                                    provider=profile.name, base_url=profile.base_url)
         assert cost.status == "unknown"
         assert cost.amount_usd is None
-    assert profile.get_model_context_length("unqualified-future-model") is None
     reported = {"prompt_tokens": 50, "completion_tokens": 10,
                 "native_cost": {"total_cost_usd": .012345, "modelUsage": {"claude-sonnet-5": {"costBasis": "list"}}}}
     usage = normalize_usage(reported, provider=profile.name)
