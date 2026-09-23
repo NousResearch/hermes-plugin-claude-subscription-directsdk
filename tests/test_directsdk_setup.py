@@ -43,6 +43,8 @@ UNPINNED_PICKER = [
     {"value": "opus[1m]", "resolvedModel": "claude-opus-9[1m]", "displayName": "Opus (1M context)", "description": "Opus 9 with 1M context · Draws from usage credits · $5/$25 per Mtok"},
     {"value": "claude-sonnet-5-9", "resolvedModel": "claude-sonnet-5-9", "displayName": "Sonnet", "description": "Sonnet 5.9 · Efficient for routine tasks"},
     {"value": "claude-fable-9[1m]", "resolvedModel": "claude-fable-9[1m]", "displayName": "Fable", "description": "Fable 9 · Most capable for your hardest tasks"},
+    # An alias row the CLI leaves unresolved is not a model and must not become a route.
+    {"value": "default", "displayName": "Default (recommended)", "description": "Opus 9 · Best for everyday, complex tasks"},
 ]
 
 
