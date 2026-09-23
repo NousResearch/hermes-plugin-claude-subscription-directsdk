@@ -23,16 +23,6 @@ ALIASES = {
 NO_ADAPTIVE_THINKING = frozenset({'claude-haiku-4-5-20251001'})
 
 
-def canonical_model(model):
-    base = model.removesuffix('[1m]')
-    return ALIASES.get(base, base)
-
-
-def accepts_thinking_disable(model):
-    canonical = canonical_model(model)
-    return not any(canonical.startswith(prefix) for prefix in MANDATORY_THINKING)
-
-
 def native_model(model):
     base = model.removesuffix('[1m]')
     canonical = ALIASES.get(base, base)
@@ -44,6 +34,12 @@ def native_model(model):
             raise ValueError('Haiku 4.5 does not support a 1M context window')
         return canonical
     return model
+
+
+def accepts_thinking_disable(model):
+    # Same tolerance as supports_adaptive_thinking: an absent model still reaches `model is required`.
+    base = model.removesuffix('[1m]') if isinstance(model, str) else ''
+    return not ALIASES.get(base, base).startswith(MANDATORY_THINKING)
 
 
 def supports_adaptive_thinking(model):

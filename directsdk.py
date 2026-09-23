@@ -190,7 +190,7 @@ def request_body(kwargs):
         if effort not in (None, 'none', 'low', 'medium', 'high', 'xhigh', 'max'):
             raise ValueError('Unsupported native reasoning effort')
         if reasoning.get('enabled') is False or effort == 'none':
-            if accepts_thinking_disable(kwargs['model']):
+            if accepts_thinking_disable(kwargs.get('model')):
                 body['thinking'] = {'type': 'disabled'}
                 # Native clear-thinking context edits are invalid when thinking is disabled.
                 body['context_management'] = {'edits': []}
