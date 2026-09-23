@@ -13,6 +13,63 @@ import threading
 from urllib.parse import urlsplit
 
 
+INJECTION_PREFIX = '<system-reminder>'
+INJECTION_MARKERS = ("Today's date is", 'userEmail')
+
+
+def _is_moving_injection(block):
+    """The CLI's per-request context block (date / userEmail reminder), not user content
+    that merely quotes one: a ``<system-reminder>`` ABOUT the request itself, anchored at
+    the start of the block."""
+    text = block.get('text')
+    if block.get('type') == 'tool_result':
+        inner = block.get('content')
+        text = inner if isinstance(inner, str) else json.dumps(inner or '')
+    return isinstance(text, str) and text.startswith(INJECTION_PREFIX) \
+        and any(marker in text for marker in INJECTION_MARKERS)
+
+
+def relocate_message_breakpoint(payload):
+    """Move the single message ``cache_control`` off the CLI's moving per-request injection.
+
+    Native >= 2.1.276 appends a ``<system-reminder>`` (``Today's date is ...``, userEmail)
+    to the newest turn and puts the message cache breakpoint on or after it. The next
+    request moves that injection to the new newest turn, so the cached prefix never
+    reappears and every tool round re-writes the whole history (issue #14, second cause;
+    design by @robbyczgw-cla). When the only message breakpoint sits at or after the first
+    CLI injection following the last assistant message, move it to the last cacheable
+    (non-thinking) block before that injection. Content is never changed — only the
+    ``cache_control`` directive moves — so a wrong heuristic guess costs cache hits, never
+    correctness. Every other payload, including anything that fails to parse, forwards
+    unchanged."""
+    try:
+        body = json.loads(payload)
+        messages = body.get('messages')
+        if not isinstance(messages, list):
+            return payload
+        blocks = [(i, j, block) for i, msg in enumerate(messages)
+                  if isinstance(msg, dict) and isinstance(msg.get('content'), list)
+                  for j, block in enumerate(msg['content']) if isinstance(block, dict)]
+        marked = [(i, j) for i, j, block in blocks if 'cache_control' in block]
+        if len(marked) != 1:
+            return payload
+        last_assistant = max((i for i, msg in enumerate(messages)
+                              if isinstance(msg, dict) and msg.get('role') == 'assistant'), default=-1)
+        injection = next(((i, j) for i, j, block in blocks
+                          if i > last_assistant and _is_moving_injection(block)), None)
+        if injection is None or marked[0] < injection:
+            return payload
+        target = next(((i, j) for i, j, block in reversed(blocks)
+                       if (i, j) < injection and block.get('type') != 'thinking'), None)
+        if target is None:
+            return payload
+        by_position = {(i, j): block for i, j, block in blocks}
+        by_position[target]['cache_control'] = by_position[marked[0]].pop('cache_control')
+        return json.dumps(body, ensure_ascii=False).encode()
+    except (ValueError, TypeError):
+        return payload
+
+
 class Capture:
     def __init__(self):
         self.message = None
@@ -154,6 +211,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.connection.settimeout(gate.timeout)
             payload = self.rfile.read(int(self.headers['Content-Length']))
+            payload = relocate_message_breakpoint(payload)
             target = gate.upstream
             if target.scheme == 'https':
                 conn = http.client.HTTPSConnection(target.hostname, target.port, timeout=gate.timeout, context=ssl.create_default_context())
