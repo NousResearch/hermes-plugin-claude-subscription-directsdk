@@ -13,20 +13,19 @@ import threading
 from urllib.parse import urlsplit
 
 
-INJECTION_PREFIX = '<system-reminder>'
-INJECTION_MARKERS = ("Today's date is", 'userEmail')
+INJECTION_ANCHORS = ('<system-reminder>', "Today's date is", 'userEmail:')
 
 
 def _is_moving_injection(block):
     """The CLI's per-request context block (date / userEmail reminder), not user content
-    that merely quotes one: a ``<system-reminder>`` ABOUT the request itself, anchored at
-    the start of the block."""
+    that merely quotes one: anchored at the start of the block. Native >= 2.1.276 wraps it
+    in ``<system-reminder>``; some model-specific builds (e.g. claude-opus-5-5 on
+    2.1.280.d84) emit the date line unwrapped."""
     text = block.get('text')
     if block.get('type') == 'tool_result':
         inner = block.get('content')
         text = inner if isinstance(inner, str) else json.dumps(inner or '')
-    return isinstance(text, str) and text.startswith(INJECTION_PREFIX) \
-        and any(marker in text for marker in INJECTION_MARKERS)
+    return isinstance(text, str) and any(text.startswith(anchor) for anchor in INJECTION_ANCHORS)
 
 
 def relocate_message_breakpoint(payload):

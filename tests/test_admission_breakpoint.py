@@ -66,6 +66,18 @@ def test_quoted_reminder_is_not_an_injection():
     assert blocks_at(payload, 0)[0] == quoted
 
 
+def test_unwrapped_date_line_is_an_injection():
+    # Some model-specific CLI builds emit the date line without the <system-reminder> wrapper.
+    bare = {'type': 'text', 'text': "Today's date is 2026-09-23.", 'cache_control': MARKER}
+    payload = relocate_message_breakpoint(wire([
+        {'role': 'user', 'content': [{'type': 'text', 'text': 'question'}]},
+        {'role': 'system', 'content': [bare]},
+    ]))
+    messages = json.loads(payload)['messages']
+    assert 'cache_control' not in messages[1]['content'][0]
+    assert messages[0]['content'][0]['cache_control'] == MARKER
+
+
 def test_breakpoint_before_the_injection_is_left_alone():
     marked = {'type': 'text', 'text': 'question', 'cache_control': MARKER}
     messages = [{'role': 'user', 'content': [marked, REMINDER]}]
