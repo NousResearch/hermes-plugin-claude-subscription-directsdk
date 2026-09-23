@@ -23,7 +23,9 @@ def test_catalog_windows_match_explicit_native_routes(profile):
         assert profile.get_model_context_length(model) == window
         assert get_model_context_length(model, provider=profile.name) == window
         assert get_model_context_length(model, provider=profile.name, config_context_length=200000) == 200000
-    assert profile.get_model_context_length('unqualified-future-model') is None
+    # Unpinned: the plain id runs natively within the 200K gateway default; [1m] promises nothing.
+    assert profile.get_model_context_length('unqualified-future-model') == 200_000
+    assert profile.get_model_context_length('unqualified-future-model[1m]') is None
 
 
 def test_native_argv_enables_only_known_long_context_models(profile, tmp_path):

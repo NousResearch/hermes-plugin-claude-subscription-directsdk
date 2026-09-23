@@ -20,7 +20,12 @@ class ClaudeOAuthDirectSDKProfile(ProviderProfile):
     model_metadata = MODEL_METADATA
 
     def get_model_context_length(self, model):
-        return self.model_metadata.get(native_model(model), {}).get('context_window')
+        route = native_model(model)
+        pinned = self.model_metadata.get(route, {}).get('context_window')
+        # Unpinned: behind the relay native Claude Code runs a plain id within its 200K default, and
+        # Hermes' own family guess (claude-opus-5-5 -> 1M before it was pinned) would outgrow that.
+        # A [1m] id stays unreported: no Hermes guess exceeds the 1M native budget, nor is it promised.
+        return pinned or (None if route.endswith('[1m]') else 200_000)
 
     def get_usage_cost(self, model, usage):
         from decimal import Decimal, InvalidOperation
