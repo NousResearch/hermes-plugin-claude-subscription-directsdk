@@ -159,3 +159,36 @@ def test_invalid_stream_json_error_names_the_offending_line(tmp_path):
             client.create(model='sonnet',messages=[{'role':'user','content':'fixture'}])
     finally:
         client.close()
+
+
+def test_silent_upstream_fails_fast_instead_of_hanging(tmp_path, monkeypatch):
+    """Headers, one event, then silence (a dead path that keeps TCP ESTAB): the relay must error out
+    within the idle bound, not wait out the request timeout while Hermes sees nothing."""
+    import time
+    import admission
+    monkeypatch.setattr(admission, 'UPSTREAM_IDLE_SECONDS', 1)
+    release = threading.Event()
+    class Peer(BaseHTTPRequestHandler):
+        def log_message(self, *args): pass
+        def do_POST(self):
+            self.rfile.read(int(self.headers['Content-Length']))
+            self.send_response(200); self.send_header('Content-Type','text/event-stream'); self.end_headers()
+            start = {'type':'message_start','message':{'id':'m','role':'assistant','model':'sonnet','content':[],'usage':{'input_tokens':0,'output_tokens':0}}}
+            self.wfile.write(('data: '+json.dumps(start)+'\n\n').encode()); self.wfile.flush()
+            release.wait(60)
+    peer=ThreadingHTTPServer(('127.0.0.1',0),Peer)
+    thread=threading.Thread(target=peer.serve_forever,daemon=True); thread.start()
+    native=tmp_path/'native.py'; native.write_text(NATIVE.replace('timeout=5', 'timeout=60'))
+    client=directsdk.Client(command=[sys.executable,str(native)],env={'PATH':os.defpath,'HOME':str(tmp_path),'ANTHROPIC_BASE_URL':f'http://127.0.0.1:{peer.server_port}'})
+    began = time.monotonic()
+    try:
+        with pytest.raises(RuntimeError, match=r'status 200, capture incomplete, relay failure UpstreamIdle'):
+            client.create(model='sonnet',messages=[{'role':'user','content':'fixture'}],timeout=20)
+        assert time.monotonic() - began < 10
+    finally:
+        release.set(); client.close(); peer.shutdown(); thread.join(); peer.server_close()
+
+
+def test_idle_bound_fits_the_acceptance_window():
+    import admission
+    assert admission.UPSTREAM_IDLE_SECONDS <= 60
