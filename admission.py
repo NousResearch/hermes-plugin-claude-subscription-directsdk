@@ -14,6 +14,29 @@ from urllib.parse import urlsplit
 
 
 UNCACHEABLE = ('thinking', 'redacted_thinking')
+# A streaming upstream sends SSE pings every few seconds; a minute of silence after the headers is a
+# dead stream, not a slow one. Bounded independently of the request timeout (Hermes' compression floor
+# is 300 s, which equals its own stall detector: a silent stream then surfaces as a stall, not an error).
+UPSTREAM_IDLE_SECONDS = 60
+# Probe a quiet upstream socket so a dead path fails in ~30 s instead of waiting on TCP retransmits.
+KEEPALIVE = (('TCP_KEEPIDLE', 15), ('TCP_KEEPALIVE', 15), ('TCP_KEEPINTVL', 5), ('TCP_KEEPCNT', 3))
+
+
+class UpstreamIdle(OSError):
+    """The upstream sent headers, then nothing for UPSTREAM_IDLE_SECONDS."""
+
+
+def keepalive(sock):
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    except OSError:
+        return
+    for name, value in KEEPALIVE:
+        if hasattr(socket, name):
+            try:
+                sock.setsockopt(socket.IPPROTO_TCP, getattr(socket, name), value)
+            except OSError:
+                pass  # Not every platform accepts every knob (older Windows, macOS spellings).
 
 
 def _plain(block):
@@ -213,6 +236,7 @@ class Handler(BaseHTTPRequestHandler):
                 conn = http.client.HTTPConnection(target.hostname, target.port, timeout=gate.timeout)
             conn.connect()
             upstream_socket = conn.sock
+            keepalive(upstream_socket)
             with gate.lock:
                 if gate.cancelled:
                     return
@@ -232,8 +256,13 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_header(key, value)
             self.send_header('Connection', 'close')
             self.end_headers()
+            idle = min(gate.timeout, UPSTREAM_IDLE_SECONDS)
+            upstream_socket.settimeout(idle)
             while True:
-                chunk = response.read1(65536)
+                try:
+                    chunk = response.read1(65536)
+                except TimeoutError as exc:  # socket.timeout is TimeoutError since 3.10.
+                    raise UpstreamIdle(f'no upstream bytes for {idle:g} s') from exc
                 if not chunk:
                     break
                 if response.status == 200:
