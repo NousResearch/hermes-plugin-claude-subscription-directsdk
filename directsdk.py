@@ -490,10 +490,16 @@ class Client:
                 # per-argument/environment-string limit for full Hermes schemas.
                 (root / 'settings.json').write_text(json.dumps({'env': {'CLAUDE_CODE_EXTRA_BODY': body}}), encoding='utf-8')
                 (root / 'system.md').write_text(system, encoding='utf-8')
-                if 'max_tokens' in json.loads(body):
-                    env['CLAUDE_CODE_MAX_OUTPUT_TOKENS'] = str(json.loads(body)['max_tokens'])
+                parsed = json.loads(body)
+                if 'max_tokens' in parsed:
+                    env['CLAUDE_CODE_MAX_OUTPUT_TOKENS'] = str(parsed['max_tokens'])
                 # The resolved path matters on Windows: CreateProcess finds claude.exe on PATH but not the npm claude.cmd shim.
                 command = resolved + ['-p', '--model', native_model(kwargs['model']), '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--tools', '', '--system-prompt-file', str(root / 'system.md'), '--settings', str(root / 'settings.json'), '--setting-sources', '', '--strict-mcp-config', '--disable-slash-commands', '--max-turns', '1', '--permission-mode', 'dontAsk', '--no-session-persistence', '--mcp-config', json.dumps(mcp)]
+                # Native appends a per-turn effort message at its own level (the CLI default unless
+                # --effort is given), which overrides the top-level output_config.effort from the extra body.
+                effort = parsed.get('output_config', {}).get('effort')
+                if effort:
+                    command += ['--effort', effort]
                 p = request.spawn(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding='utf-8', cwd=self._workdir(), env=env)
                 events = queue.Queue()
                 def read():

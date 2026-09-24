@@ -45,6 +45,7 @@ body = json.loads(settings['env']['CLAUDE_CODE_EXTRA_BODY'])
 assert len(body['tools'][0]['description']) == 150000
 assert 'temperature' not in body and 'top_p' not in body
 assert body['output_config']['effort'] == 'low'
+assert sys.argv[sys.argv.index('--effort')+1] == 'low'
 assert len(pathlib.Path(sys.argv[sys.argv.index('--system-prompt-file')+1]).read_text()) == 150000
 for line in sys.stdin: pass
 for i in range(8):
