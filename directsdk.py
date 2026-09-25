@@ -410,6 +410,19 @@ class Client:
         with self._lock:
             if self._cwd is None:
                 self._cwd = tempfile.mkdtemp(prefix='claude-directsdk-cwd-')
+            else:
+                # A long-lived client (e.g. a cached auxiliary client) can outlive its empty cwd:
+                # Hermes prunes scratch entries with no write for 24h. Recreate the same path so
+                # the prompt-cache prefix is unchanged, and refresh mtime so an in-use workspace
+                # never looks idle (the pruner also reaps processes whose cwd it deletes).
+                try:
+                    os.mkdir(self._cwd, 0o700)
+                except FileExistsError:
+                    pass
+                try:
+                    os.utime(self._cwd)
+                except OSError:
+                    pass
             return self._cwd
 
     def create(self, **kwargs):

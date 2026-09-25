@@ -52,3 +52,26 @@ def test_requests_of_one_client_share_a_workspace_and_close_removes_it(tmp_path)
     finally:
         client.close()
     assert not Path(workspace).exists(), "workspace must be removed with the client"
+
+
+def test_workspace_recreated_at_same_path_after_external_prune(tmp_path):
+    import shutil, time
+    script = tmp_path / "native.py"
+    script.write_text(FAKE)
+    client = native.Client(command=[sys.executable, str(script)], env={"PATH": os.environ["PATH"], "HOME": str(tmp_path)})
+    request = dict(model="sonnet", messages=[{"role": "system", "content": "s"}, {"role": "user", "content": "go"}],
+                   tools=[{"type": "function", "function": {"name": "probe", "description": "d"}}], stream=True, timeout=SimpleNamespace(read=5))
+    try:
+        list(client.create(**request))
+        first = (tmp_path / "cwds.log").read_text().splitlines()[0]
+        os.utime(first, (0, 0))
+        list(client.create(**request))
+        assert os.stat(first).st_mtime > time.time() - 60, "in-use workspace must look recently used"
+        shutil.rmtree(first)            # simulate the 24h scratch pruner
+        list(client.create(**request))  # must not raise ENOENT
+        cwds = (tmp_path / "cwds.log").read_text().splitlines()
+        assert cwds == [first] * 3, cwds
+        assert oct(os.stat(first).st_mode & 0o777) == "0o700"
+    finally:
+        client.close()
+    assert not Path(first).exists()
