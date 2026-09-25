@@ -11,6 +11,7 @@ import queue
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -367,6 +368,21 @@ class AsyncStream:
         await self.aclose()
 
 
+def shared_workdir():
+    if not hasattr(os, 'getuid'):
+        return None
+    path = Path(tempfile.gettempdir()) / f'claude-directsdk-cwd-{os.getuid()}'
+    try:
+        path.mkdir(mode=0o700, exist_ok=True)
+        info = path.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            return None
+        os.utime(path)
+    except OSError:
+        return None
+    return str(path)
+
+
 class Client:
     HERMES_SKIP_TRANSPORT_WRAP = True
     HERMES_SKIP_ASYNC_WRAP = True
@@ -381,7 +397,7 @@ class Client:
         self.command = ([command] if isinstance(command, str) else list(command)) + list(args or [])
         self.timeout = timeout if isinstance(timeout, (int, float)) else 180
         self._lock, self._requests, self._closed = threading.Lock(), set(), False
-        self._cwd = None
+        self._owned_cwd = None
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
 
     def cancel(self):
@@ -401,16 +417,20 @@ class Client:
                 stream.close()
             else:
                 request.cancel()
-        if self._cwd is not None:
-            shutil.rmtree(self._cwd, ignore_errors=True)
+        if self._owned_cwd is not None:
+            shutil.rmtree(self._owned_cwd, ignore_errors=True)
 
     def _workdir(self):
-        """One empty cwd per client. Native >= ~2.1.276 writes `Working directory: <cwd>` into every
-        request, so a fresh tempdir per request moved the prompt-cache prefix every round (#14)."""
+        shared = shared_workdir()
+        if shared is not None:
+            return shared
         with self._lock:
-            if self._cwd is None:
-                self._cwd = tempfile.mkdtemp(prefix='claude-directsdk-cwd-')
-            return self._cwd
+            if self._owned_cwd is None:
+                self._owned_cwd = tempfile.mkdtemp(prefix='claude-directsdk-cwd-')
+            else:
+                os.makedirs(self._owned_cwd, mode=0o700, exist_ok=True)
+                os.utime(self._owned_cwd)
+            return self._owned_cwd
 
     def create(self, **kwargs):
         # Hermes' auxiliary seam returns this same object and awaits create.
