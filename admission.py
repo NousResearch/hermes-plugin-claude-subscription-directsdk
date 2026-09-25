@@ -30,10 +30,11 @@ def pin_message_breakpoint(payload, queried):
 
     What does recur is known without reading native's text: everything through the last
     assistant message, plus the leading blocks of the newest turn that equal the frame Hermes
-    queried. The first block native added or changed ends that span, so a reworded, moved or
-    new annotation cannot reopen this bug. The breakpoint moves back to the last cacheable
-    block of the span; it never moves later, content is never changed, and any payload that
-    does not parse forwards as is."""
+    queried. The first block native added or changed ends that span. A breakpoint inside a
+    partly changed user message of tool results does not get a cache hit even when its leading
+    blocks are unchanged (#33), so that case uses the preceding assistant message instead.
+    The breakpoint never moves later, content never changes, and any payload that does not
+    parse forwards as is."""
     if not queried:
         return payload
     try:
@@ -48,10 +49,15 @@ def pin_message_breakpoint(payload, queried):
         stable = [(i, j, b) for i, j, b in blocks if i <= last]
         newest = messages[last + 1] if last + 1 < len(messages) else {}
         if newest.get('role') == 'user' and isinstance(newest.get('content'), list):
+            before_user = len(stable)
             for j, (sent, host) in enumerate(zip(newest['content'], queried)):
                 if _plain(sent) != _plain(host):
                     break
                 stable.append((last + 1, j, sent))
+            if (before_user < len(stable) < before_user + len(newest['content'])
+                    and any(isinstance(b, dict) and b.get('type') == 'tool_result'
+                            for b in newest['content'])):
+                del stable[before_user:]
         target = next(((i, j, b) for i, j, b in reversed(stable)
                        if isinstance(b, dict) and b.get('type') not in UNCACHEABLE), None)
         i, j, block = marked[0]

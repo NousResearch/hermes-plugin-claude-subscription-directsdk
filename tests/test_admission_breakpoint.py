@@ -64,6 +64,25 @@ def test_breakpoint_moves_to_the_last_block_hermes_itself_sent(queried, messages
     assert unmarked(out) == unmarked(raw)  # only the directive moves, never content
 
 
+@pytest.mark.parametrize('count', [2, 4])
+def test_parallel_tool_results_do_not_pin_inside_a_partly_changed_user_message(count):
+    results = [{'type': 'tool_result', 'tool_use_id': f't{i}', 'content': f'output {i}'}
+               for i in range(count)]
+    assistant = {'role': 'assistant', 'content': [
+        {'type': 'tool_use', 'id': f't{i}', 'name': f'probe_{i}', 'input': {}}
+        for i in range(count)]}
+    changed_last = {**results[-1],
+                    'content': results[-1]['content'] + '\n<system-reminder>native note</system-reminder>'}
+    messages = [assistant, {'role': 'user', 'content': [
+        *results[:-1], with_marker(changed_last)]}]
+    raw = wire(messages)
+
+    out = pin_message_breakpoint(raw, results)
+
+    assert marks(out) == [(0, count - 1)]
+    assert unmarked(out) == unmarked(raw)
+
+
 @pytest.mark.parametrize('payload,queried', [
     (wire([ASSISTANT, {'role': 'user', 'content': [RESULT, with_marker(QUESTION)]}]), [RESULT, QUESTION]),
     (wire([{'role': 'user', 'content': [with_marker({'type': 'text', 'text': 'Any preamble'})]}]), [QUESTION]),
