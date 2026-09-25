@@ -204,13 +204,23 @@ class Contract(unittest.TestCase):
         self.assertEqual(disabled["context_management"], {"edits": []})
         # Fable rejects the disable (HTTP 400 "thinking.type.disabled is not supported"), so a
         # caller's disable is omitted rather than sent: thinking stays on, the request survives.
-        mandatory = json.loads(
+        # Opus 5.5 answers the same 400 (probed live on claude-opus-5-5[1m]); `opus` resolves to it.
+        # The disable is sent as the lowest effort instead. Opus 5 still accepts the disable.
+        for route in ("fable", "opus", "claude-opus-5-5", "claude-opus-5-5[1m]"):
+            mandatory = json.loads(
+                directsdk.request_body(
+                    {**self.request(), "model": route, "extra_body": {"reasoning": {"enabled": False}}}
+                )[0]
+            )
+            self.assertNotIn("thinking", mandatory)
+            self.assertNotIn("context_management", mandatory)
+            self.assertEqual(mandatory["output_config"], {"effort": "low"})
+        opus5 = json.loads(
             directsdk.request_body(
-                {**self.request(), "model": "fable", "extra_body": {"reasoning": {"enabled": False}}}
+                {**self.request(), "model": "claude-opus-5", "extra_body": {"reasoning": {"enabled": False}}}
             )[0]
         )
-        self.assertNotIn("thinking", mandatory)
-        self.assertNotIn("context_management", mandatory)
+        self.assertEqual(opus5["thinking"], {"type": "disabled"})
         effort = json.loads(
             directsdk.request_body(
                 {**self.request(), "extra_body": {"reasoning": {"effort": "low"}}}

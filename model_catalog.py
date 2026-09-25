@@ -8,9 +8,11 @@ CONTEXT_WINDOWS = {
     'claude-fable-5-1': 1_000_000,
 }
 # Families that 400 on ``thinking: {"type": "disabled"}`` (the same contract Hermes core keeps
-# in agent/anthropic_adapter.py). A caller's disable is omitted for them: thinking stays on at
-# the model's default, which beats a dead request.
-MANDATORY_THINKING = ('claude-fable',)
+# in agent/anthropic_adapter.py). A caller's disable is omitted for them and sent as the lowest
+# effort instead, the docs' stand-in for "off"; that beats a dead request. Opus 5.5 is probed:
+# a live title-generation call on claude-opus-5-5[1m] (2026-09-25) answered 400
+# '"thinking.type.disabled" is not supported for this model'.
+MANDATORY_THINKING = ('claude-fable', 'claude-opus-5-5')
 ALIASES = {
     'sonnet': 'claude-sonnet-5',
     'haiku': 'claude-haiku-4-5-20251001',
