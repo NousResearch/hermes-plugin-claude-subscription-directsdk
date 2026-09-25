@@ -37,6 +37,17 @@ def test_host_history_edits_replay_canonical_visible_blocks():
         native.prepare_history(history)
 
 
+def test_edited_history_replays_a_call_outside_the_inventory_by_its_own_name():
+    # Hermes answered a directly-called deferred tool with its unknown-tool error (#39); after a
+    # host edit, rebuilt history must not rename it into the mcp__hermes__ namespace.
+    calls = [{"id": "t1", "type": "function", "function": {"name": "mcp__fastmail__draft_email", "arguments": "{}"}},
+             {"id": "t2", "type": "function", "function": {"name": "write_file", "arguments": "{}"}}]
+    history = [{"role": "user", "content": "draft"}, {"role": "assistant", "content": "Drafting.", "tool_calls": calls},
+               {"role": "tool", "tool_call_id": "t1", "content": "unknown"}, {"role": "tool", "tool_call_id": "t2", "content": "ok"}]
+    blocks = native.prepare_history(history, {"write_file"})[1][1]["message"]["content"]
+    assert [b["name"] for b in blocks if b["type"] == "tool_use"] == ["mcp__fastmail__draft_email", native.PREFIX + "write_file"]
+
+
 def test_active_stream_outlives_idle_budget_and_large_request_uses_files(tmp_path):
     script = tmp_path / "native.py"
     script.write_text('''import json, pathlib, sys, time
