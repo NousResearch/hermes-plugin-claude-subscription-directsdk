@@ -93,7 +93,7 @@ def content_blocks(content):
     return result
 
 
-def prepare_history(messages):
+def prepare_history(messages, names=None):
     system, frames = [], []
     for message in messages:
         role = message.get('role')
@@ -120,7 +120,9 @@ def prepare_history(messages):
                 # pre-edit blocks or attach their signatures to rewritten content.
             blocks = content_blocks(message.get('content'))
             for call in projection(message)['tool_calls']:
-                blocks.append({'type': 'tool_use', 'id': call['id'], 'name': PREFIX + call['name'], 'input': call['input']})
+                # Inverse of the result mapping: a call outside the inventory (#39) replays as the model named it.
+                name = PREFIX + call['name'] if names is None or call['name'] in names else call['name']
+                blocks.append({'type': 'tool_use', 'id': call['id'], 'name': name, 'input': call['input']})
         elif role == 'tool':
             role = 'user'
             blocks = [{'type': 'tool_result', 'tool_use_id': message['tool_call_id'],
@@ -433,7 +435,7 @@ class Client:
 
     def _create(self, **kwargs):
         body, manifest, names = request_body(kwargs)
-        system, frames = prepare_history(kwargs.get('messages', []))
+        system, frames = prepare_history(kwargs.get('messages', []), names)
         if not isinstance(kwargs.get('model'), str) or not kwargs['model']:
             raise ValueError('model is required')
         request = Request(self)
@@ -441,7 +443,7 @@ class Client:
             if self._closed:
                 raise RuntimeError('Claude client is closed')
             self._requests.add(request)
-        stream = Stream(self._run(request, kwargs, body, manifest, names, system, frames), request)
+        stream = Stream(self._run(request, kwargs, body, manifest, system, frames), request)
         if kwargs.get('stream'):
             return stream
         try:
@@ -452,7 +454,7 @@ class Client:
         finally:
             stream.close()
 
-    def _run(self, request, kwargs, body, manifest, names, system, frames):
+    def _run(self, request, kwargs, body, manifest, system, frames):
         p = None
         reader = None
         try:
@@ -595,10 +597,11 @@ class Client:
                 calls = []
                 for block in blocks:
                     if block.get('type') == 'tool_use':
-                        name = block['name']
-                        if not name.startswith(PREFIX) or name[len(PREFIX):] not in names:
-                            raise RuntimeError('Native returned a tool outside the current host inventory')
-                        calls.append({'id': block['id'], 'type': 'function', 'function': {'name': name[len(PREFIX):], 'arguments': json.dumps(block['input'], separators=(',', ':'), allow_nan=False)}})
+                        # Native built-ins are off (--tools '', inert MCP, dontAsk), so any other name is
+                        # the model's, e.g. a Tool Search-deferred tool called directly (#39). Hermes owns
+                        # validation and answers an unknown name with a recoverable error.
+                        name = block['name'].removeprefix(PREFIX)
+                        calls.append({'id': block['id'], 'type': 'function', 'function': {'name': name, 'arguments': json.dumps(block['input'], separators=(',', ':'), allow_nan=False)}})
                 boundary = bool(calls) and final.get('subtype') == 'error_max_turns' and p.returncode == 1
                 if not boundary and not native_failure_handled and (p.returncode != 0 or final.get('is_error') or final.get('subtype') != 'success'):
                     raise RuntimeError('Native request failed: ' + str(final.get('subtype')))

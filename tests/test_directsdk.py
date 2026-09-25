@@ -44,7 +44,7 @@ assert sys.argv[sys.argv.index('--permission-mode')+1]=='dontAsk'
 assert sys.argv[sys.argv.index('--tools')+1]==''
 assert rows[-1]['type']=='user'
 assert 'metadata' not in wire
-blocks=[{'type':'thinking','thinking':'private','signature':'signed-test'}, {'type':'text','text':'hello\n'}, {'type':'tool_use','id':'toolu_test','name':'mcp__hermes__probe','input':{'value':'x'}}]
+blocks=[{'type':'thinking','thinking':'private','signature':'signed-test'}, {'type':'text','text':'hello\n'}, {'type':'tool_use','id':'toolu_test','name':os.environ.get('TOOL_NAME','mcp__hermes__probe'),'input':{'value':'x'}}]
 if len(rows)>1:
  if rows[1]['message']['content'][0]['type']=='thinking':
   assert rows[1]['message']['content']==blocks
@@ -170,6 +170,28 @@ class Contract(unittest.TestCase):
                 msg["content"] = "middleware changed"
                 self.assertEqual(client.chat.completions.create(**req).choices[0].message.content, "done")
             client.close()
+
+    def test_tool_outside_the_inventory_reaches_the_host(self):
+        """Hermes Tool Search defers MCP tools behind tool_search/tool_describe/tool_call, so they
+        are not in this request's inventory. Claude sometimes calls one directly by the name it read
+        in tool_describe output (#39). Hermes owns tool validation: its unknown-tool path answers
+        with a recoverable error listing the callable tools, as it does for every other provider.
+        Failing the whole request here left the model no way to correct itself."""
+        with tempfile.TemporaryDirectory() as tmp:
+            for native_name, host_name in (("mcp__fastmail__draft_email", "mcp__fastmail__draft_email"),
+                                           ("mcp__hermes__unlisted", "unlisted")):
+                client = self.client(tmp, TOOL_NAME=native_name)
+                req = self.request()
+                result = client.chat.completions.create(**req)
+                self.assertEqual(result.choices[0].finish_reason, "tool_calls")
+                msg = result.choices[0].message.model_dump()
+                self.assertEqual(msg["tool_calls"][0]["function"]["name"], host_name)
+                # The host's error result goes back with the call replayed as native produced it.
+                msg["content"] = (msg.get("content") or "").strip()
+                req["messages"] += [msg, {"role": "tool", "tool_call_id": "toolu_test",
+                                          "content": f"Tool '{host_name}' does not exist. Available tools: probe"}]
+                self.assertEqual(client.chat.completions.create(**req).choices[0].message.content, "done")
+                client.close()
 
     def test_logged_out_native_raises_the_login_hint(self):
         import directsdk
