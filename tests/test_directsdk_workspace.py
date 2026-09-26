@@ -9,7 +9,6 @@ the first user turn, so a per-client tempdir broke the cache whenever the host
 built a new client.
 """
 import importlib.util
-import json
 import os
 import shutil
 from pathlib import Path
@@ -68,35 +67,46 @@ def run_clients(tmp_path, count):
 
 
 @posix_only
-def test_clients_of_one_user_share_a_workspace_that_outlives_them(tmp_path, monkeypatch):
-    monkeypatch.setattr(native.tempfile, "tempdir", str(tmp_path))
-    cwds = run_clients(tmp_path, 2)
-    assert len(cwds) == 4, cwds
-    assert set(cwds) == {str(shared_path(tmp_path))}, cwds
-    assert Path(cwds[0]).is_dir(), "the shared workspace must survive client close"
-
-
-@posix_only
-def test_pruned_workspace_is_recreated_at_the_same_path_and_kept_fresh(tmp_path, monkeypatch):
+def test_clients_of_one_user_share_a_workspace_that_survives_close_and_prune(tmp_path, monkeypatch):
     monkeypatch.setattr(native.tempfile, "tempdir", str(tmp_path))
     shared = shared_path(tmp_path)
+    assert set(run_clients(tmp_path, 2)) == {str(shared)}
+    assert shared.is_dir(), "the shared workspace must survive client close"
+    shutil.rmtree(shared)
     client = fake_client(tmp_path)
     try:
-        list(client.create(**REQUEST))
-        shutil.rmtree(shared)
         list(client.create(**REQUEST))
         os.utime(shared, (0, 0))
         list(client.create(**REQUEST))
     finally:
         client.close()
-    assert (tmp_path / "cwds.log").read_text().splitlines() == [str(shared)] * 3
+    assert (tmp_path / "cwds.log").read_text().splitlines()[-2:] == [str(shared)] * 2
     assert shared.stat().st_mtime > 0, "every request must refresh the workspace mtime"
 
 
-def test_unusable_shared_workspace_falls_back_to_one_private_workspace_per_client(tmp_path, monkeypatch):
-    monkeypatch.setattr(native.tempfile, "tempdir", str(tmp_path))
-    if hasattr(os, "getuid"):
-        shared_path(tmp_path).write_text("not a directory")
+def unsafe(kind, tmp_path, monkeypatch):
+    root = tmp_path / "tmp"
+    root.mkdir(mode=0o700)
+    monkeypatch.setattr(native.tempfile, "tempdir", str(root))
+    if kind == "no_uid":
+        monkeypatch.delattr(native.os, "getuid", raising=False)
+        return
+    shared = shared_path(root)
+    if kind == "file":
+        shared.write_text("not a directory")
+    elif kind == "symlink":
+        (tmp_path / "elsewhere").mkdir(mode=0o700)
+        shared.symlink_to(tmp_path / "elsewhere")
+    elif kind == "open_mode":
+        shared.mkdir()
+        shared.chmod(0o777)
+    elif kind == "open_parent":
+        root.chmod(0o777)
+
+
+@pytest.mark.parametrize("kind", ["no_uid", *(pytest.param(k, marks=posix_only) for k in ("file", "symlink", "open_mode", "open_parent"))])
+def test_unsafe_shared_workspace_falls_back_to_one_private_workspace_per_client(kind, tmp_path, monkeypatch):
+    unsafe(kind, tmp_path, monkeypatch)
     client = fake_client(tmp_path)
     try:
         list(client.create(**REQUEST))
@@ -106,26 +116,6 @@ def test_unusable_shared_workspace_falls_back_to_one_private_workspace_per_clien
     finally:
         client.close()
     cwds = (tmp_path / "cwds.log").read_text().splitlines()
-    assert cwds == [private, private], cwds
+    assert cwds == [private, private] and "claude-directsdk-cwd-" in private, cwds
+    assert not private.endswith(f"-{getattr(os, 'getuid', lambda: None)()}"), "an unsafe shared path must never be used"
     assert not Path(private).exists(), "a private workspace must be removed with its client"
-
-
-@posix_only
-def test_shared_workspace_is_refused_when_others_can_write_it(tmp_path, monkeypatch):
-    monkeypatch.setattr(native.tempfile, "tempdir", str(tmp_path))
-    shared = shared_path(tmp_path)
-    shared.mkdir()
-    shared.chmod(0o777)
-    assert native.shared_workdir() is None
-    shared.chmod(0o700)
-    assert native.shared_workdir() == str(shared)
-
-
-def test_hosts_without_a_uid_use_the_private_workspace(tmp_path, monkeypatch):
-    monkeypatch.setattr(native.tempfile, "tempdir", str(tmp_path))
-    monkeypatch.delattr(native.os, "getuid", raising=False)
-    assert native.shared_workdir() is None
-    cwds = run_clients(tmp_path, 1)
-    assert len(cwds) == 2 and cwds[0] == cwds[1], cwds
-    assert not Path(cwds[0]).exists()
-
