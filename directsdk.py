@@ -444,9 +444,13 @@ class Client:
             if self._owned_cwd is None:
                 self._owned_cwd = tempfile.mkdtemp(prefix='claude-directsdk-cwd-')
             else:
-                os.makedirs(self._owned_cwd, mode=0o700, exist_ok=True)
                 # A predictable path in a shared tempdir: never adopt one someone else recreated.
-                if not _private_dir(self._owned_cwd):
+                try:
+                    os.makedirs(self._owned_cwd, mode=0o700, exist_ok=True)
+                    ours = _private_dir(self._owned_cwd)
+                except OSError:
+                    ours = False
+                if not ours:
                     self._owned_cwd = tempfile.mkdtemp(prefix='claude-directsdk-cwd-')
                 os.utime(self._owned_cwd)
             return self._owned_cwd

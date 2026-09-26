@@ -115,8 +115,11 @@ def test_unsafe_shared_workspace_falls_back_to_one_private_workspace_per_client(
         list(client.create(**REQUEST))
         if hasattr(native.os, "getuid"):
             shutil.rmtree(private)
-            Path(private).mkdir()
-            Path(private).chmod(0o777)
+            if kind == "file":
+                Path(private).write_text("planted")
+            else:
+                Path(private).mkdir()
+                Path(private).chmod(0o777)
             list(client.create(**REQUEST))
     finally:
         client.close()
