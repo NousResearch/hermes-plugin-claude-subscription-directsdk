@@ -56,6 +56,14 @@ def with_marker(block):
     ([QUESTION], [ASSISTANT,
                   {'role': 'user', 'content': [{'type': 'text', 'text': 'Any new preamble'}, with_marker(QUESTION)]}],
      (0, 1)),
+    # tool results then the user's own text, native's reminder in that text: the results recur
+    ([RESULT, QUESTION], [ASSISTANT,
+                          {'role': 'user', 'content': [RESULT, with_marker({**QUESTION, 'text': 'the real question\n<system-reminder>x</system-reminder>'})]}],
+     (1, 0)),
+    # a block native appends after unchanged tool results: the results recur
+    ([RESULT], [ASSISTANT,
+                {'role': 'user', 'content': [RESULT, with_marker({'type': 'text', 'text': 'Session context: v9 build'})]}],
+     (1, 0)),
 ])
 def test_breakpoint_moves_to_the_last_block_hermes_itself_sent(queried, messages, expected):
     raw = wire(messages)
