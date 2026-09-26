@@ -113,9 +113,16 @@ def test_unsafe_shared_workspace_falls_back_to_one_private_workspace_per_client(
         private = (tmp_path / "cwds.log").read_text().splitlines()[0]
         shutil.rmtree(private)
         list(client.create(**REQUEST))
+        if hasattr(native.os, "getuid"):
+            shutil.rmtree(private)
+            Path(private).mkdir()
+            Path(private).chmod(0o777)
+            list(client.create(**REQUEST))
     finally:
         client.close()
     cwds = (tmp_path / "cwds.log").read_text().splitlines()
-    assert cwds == [private, private] and "claude-directsdk-cwd-" in private, cwds
-    assert not private.endswith(f"-{getattr(os, 'getuid', lambda: None)()}"), "an unsafe shared path must never be used"
-    assert not Path(private).exists(), "a private workspace must be removed with its client"
+    assert cwds[:2] == [private, private] and "claude-directsdk-cwd-" in private, cwds
+    assert all(c != private for c in cwds[2:]), "a private path someone else recreated must not be adopted"
+    if hasattr(os, "getuid"):
+        assert Path(private).name != f"claude-directsdk-cwd-{os.getuid()}", "an unsafe shared path must never be used"
+    assert not Path(cwds[-1]).exists(), "a private workspace must be removed with its client"

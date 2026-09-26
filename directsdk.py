@@ -368,6 +368,12 @@ class AsyncStream:
         await self.aclose()
 
 
+def _private_dir(path):
+    """Our own real directory, closed to others; hosts without a uid only get the type check."""
+    info = os.lstat(path)
+    return stat.S_ISDIR(info.st_mode) and (not hasattr(os, 'getuid') or (info.st_uid == os.getuid() and not info.st_mode & 0o077))
+
+
 def shared_workdir():
     """One native cwd for every client of this OS user, or None to fall back to a private one.
 
@@ -384,8 +390,7 @@ def shared_workdir():
         if parent & 0o022 and not parent & stat.S_ISVTX:
             return None
         path.mkdir(mode=0o700, exist_ok=True)
-        info = path.lstat()
-        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        if not _private_dir(path):
             return None
         os.utime(path)
     except OSError:
@@ -440,6 +445,9 @@ class Client:
                 self._owned_cwd = tempfile.mkdtemp(prefix='claude-directsdk-cwd-')
             else:
                 os.makedirs(self._owned_cwd, mode=0o700, exist_ok=True)
+                # A predictable path in a shared tempdir: never adopt one someone else recreated.
+                if not _private_dir(self._owned_cwd):
+                    self._owned_cwd = tempfile.mkdtemp(prefix='claude-directsdk-cwd-')
                 os.utime(self._owned_cwd)
             return self._owned_cwd
 
