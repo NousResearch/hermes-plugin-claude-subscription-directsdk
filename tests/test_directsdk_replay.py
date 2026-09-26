@@ -39,13 +39,13 @@ def test_host_history_edits_replay_canonical_visible_blocks():
 
 def test_active_stream_outlives_idle_budget_and_large_request_uses_files(tmp_path):
     script = tmp_path / "native.py"
-    script.write_text('''import json, pathlib, sys, time
+    script.write_text('''import json, os, pathlib, sys, time
 settings = json.loads(pathlib.Path(sys.argv[sys.argv.index('--settings')+1]).read_text())
 body = json.loads(settings['env']['CLAUDE_CODE_EXTRA_BODY'])
 assert len(body['tools'][0]['description']) == 150000
 assert 'temperature' not in body and 'top_p' not in body
 assert body['output_config']['effort'] == 'low'
-assert sys.argv[sys.argv.index('--effort')+1] == 'low'
+assert sys.argv[sys.argv.index('--effort')+1] == 'low' and 'CLAUDE_CODE_EFFORT_LEVEL' not in os.environ
 assert len(pathlib.Path(sys.argv[sys.argv.index('--system-prompt-file')+1]).read_text()) == 150000
 for line in sys.stdin: pass
 for i in range(8):
@@ -55,7 +55,7 @@ print(json.dumps({'type':'assistant','message':{'role':'assistant','content':[{'
 print(json.dumps({'type':'stream_event','event':{'type':'message_stop'}}),flush=True)
 print(json.dumps({'type':'result','subtype':'success','usage':{'input_tokens':1,'output_tokens':8}}),flush=True)
 ''')
-    client = native.Client(command=[sys.executable, str(script)], env={"PATH": os.environ["PATH"], "HOME": str(tmp_path)})
+    client = native.Client(command=[sys.executable, str(script)], env={"PATH": os.environ["PATH"], "HOME": str(tmp_path), "CLAUDE_CODE_EFFORT_LEVEL": "max"})
     request = dict(model="sonnet", messages=[{"role": "system", "content": "s" * 150000}, {"role": "user", "content": "go"}], tools=[{"type": "function", "function": {"name": "probe", "description": "d" * 150000}}], temperature=.3, top_p=.9, extra_body={"reasoning": {"effort": "minimal"}}, timeout=SimpleNamespace(read=.5), stream=True)
     try:
         chunks = list(client.create(**request))
