@@ -369,10 +369,20 @@ class AsyncStream:
 
 
 def shared_workdir():
+    """One native cwd for every client of this OS user, or None to fall back to a private one.
+
+    Native writes its cwd into the environment block of every request (message 1 on Opus 5.5), so a
+    per-client directory moved the prompt-cache prefix whenever Hermes built a new client (#14, #43).
+    The path sits in a tempdir others may share: it must be our own real directory, closed to others,
+    in a parent nobody else can rename it out of. The utime keeps Hermes' 24h scratch prune off it.
+    """
     if not hasattr(os, 'getuid'):
         return None
     path = Path(tempfile.gettempdir()) / f'claude-directsdk-cwd-{os.getuid()}'
     try:
+        parent = path.parent.stat().st_mode
+        if parent & 0o022 and not parent & stat.S_ISVTX:
+            return None
         path.mkdir(mode=0o700, exist_ok=True)
         info = path.lstat()
         if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
@@ -421,6 +431,7 @@ class Client:
             shutil.rmtree(self._owned_cwd, ignore_errors=True)
 
     def _workdir(self):
+        """The shared cwd, else one private cwd per client, recreated at the same path after a prune."""
         shared = shared_workdir()
         if shared is not None:
             return shared
@@ -480,7 +491,7 @@ class Client:
             timeout = getattr(timeout, 'read', timeout)
             if not isinstance(timeout, (int, float)) or timeout <= 0:
                 raise ValueError('timeout must be positive seconds')
-            # Per-request files only; native runs in the client-stable cwd below. Windows stragglers
+            # Per-request files only; native runs in the stable cwd from _workdir. Windows stragglers
             # can still hold these open for a moment, and cleanup must not fail the request.
             with tempfile.TemporaryDirectory(prefix='claude-directsdk-', ignore_cleanup_errors=True) as tmp:
                 root = Path(tmp)
