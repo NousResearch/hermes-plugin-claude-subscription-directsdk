@@ -60,6 +60,11 @@ def with_marker(block):
     ([RESULT, QUESTION], [ASSISTANT,
                           {'role': 'user', 'content': [RESULT, with_marker({**QUESTION, 'text': 'the real question\n<system-reminder>x</system-reminder>'})]}],
      (1, 0)),
+    # every queried block unchanged, native's date in its own message after them
+    ([RESULT], [ASSISTANT,
+                {'role': 'user', 'content': [RESULT]},
+                {'role': 'system', 'content': [with_marker({'type': 'text', 'text': "Today's date is 2026-09-23."})]}],
+     (1, 0)),
     # a block native appends after unchanged tool results: the results recur
     ([RESULT], [ASSISTANT,
                 {'role': 'user', 'content': [RESULT, with_marker({'type': 'text', 'text': 'Session context: v9 build'})]}],
