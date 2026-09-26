@@ -41,6 +41,6 @@ def test_native_argv_enables_only_known_long_context_models(profile, tmp_path):
             with_client.create(model=requested, messages=[{'role':'user','content':'fixture'}],
                                tools=[{'type':'function','function':{'name':'probe','description':'TAIL','parameters':{'type':'object','properties':{'value':{'type':'string'}}}}}])
             argv = json.loads(capture.read_text())
-            assert argv[argv.index('--model')+1] == expected
+            assert argv[argv.index('--model')+1] == expected and '--effort' not in argv
     finally:
         with_client.close()
