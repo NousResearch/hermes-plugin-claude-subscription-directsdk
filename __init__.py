@@ -95,6 +95,9 @@ profile = ClaudeOAuthDirectSDKProfile(
     fallback_models=tuple(MODEL_METADATA),
     model_aliases={alias: native_model(alias) for alias in ALIASES},
 )
+# Attribute assignment keeps the plugin loadable on hosts predating this capability.
+# Newer hosts use it to avoid buffering a healthy native stream behind a stale-call timer.
+profile.supports_streaming = True
 register_provider(profile)
 
 # The provider stays registered when Claude Code is missing so `hermes model` can show the
