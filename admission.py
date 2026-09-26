@@ -31,9 +31,9 @@ def pin_message_breakpoint(payload, queried):
     What does recur is known without reading native's text: everything through the last
     assistant message, plus the leading blocks of the newest turn that equal the frame Hermes
     queried. The first block native added or changed ends that span. When that block is a
-    tool_result following unchanged tool_results (parallel calls, native's reminder on the
-    last result), a breakpoint on the earlier results gets no cache hit even though they
-    replay unchanged (#33), so the span ends at the preceding assistant message instead.
+    tool_result (parallel calls, native's reminder on the last result), a breakpoint on the
+    unchanged results before it measured no cache hit even though they replay byte-identical
+    (#33, cause unknown), so the span ends at the preceding assistant message.
     The breakpoint never moves later, content never changes, and any payload that does not
     parse forwards as is."""
     if not queried:
@@ -50,15 +50,14 @@ def pin_message_breakpoint(payload, queried):
         stable = [(i, j, b) for i, j, b in blocks if i <= last]
         newest = messages[last + 1] if last + 1 < len(messages) else {}
         if newest.get('role') == 'user' and isinstance(newest.get('content'), list):
-            kept = 0
+            prefix = []
             for j, (sent, host) in enumerate(zip(newest['content'], queried)):
                 if _plain(sent) != _plain(host):
                     break
-                stable.append((last + 1, j, sent))
-                kept += 1
-            ends = newest['content'][kept:kept + 1]
-            if kept and ends and isinstance(ends[0], dict) and ends[0].get('type') == 'tool_result':
-                del stable[-kept:]
+                prefix.append((last + 1, j, sent))
+            rest = newest['content'][len(prefix):]
+            if not (rest and isinstance(rest[0], dict) and rest[0].get('type') == 'tool_result'):
+                stable += prefix
         target = next(((i, j, b) for i, j, b in reversed(stable)
                        if isinstance(b, dict) and b.get('type') not in UNCACHEABLE), None)
         i, j, block = marked[0]
