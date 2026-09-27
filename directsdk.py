@@ -38,6 +38,14 @@ class ClaudeCodeLoggedOut(RuntimeError):
     """Claude Code refused before any upstream request because it has no usable login where Hermes runs it."""
 
 
+class UpstreamHTTPError(RuntimeError):
+    """First admitted upstream response failed, preserving its HTTP status for host routing."""
+
+    def __init__(self, message, status_code):
+        super().__init__(message)
+        self.status_code = status_code
+
+
 CARRIER = 'claude-subscription-directsdk-experimental.native_assistant'
 PREFIX = 'mcp__hermes__'
 
@@ -630,7 +638,10 @@ class Client:
                         first = f'first upstream attempt: status {admission.status}, capture ' + ('complete' if admission.capture.complete else 'incomplete') + (f', relay failure {admission.failure}' if admission.failure else '') + f', native retries denied: {admission.denied}'
                         if admission.error_text():
                             first += ', upstream said: ' + admission.error_text()[:500]
-                        raise RuntimeError(f'Incomplete upstream response ({first})' + (': ' + native_error if native_error else ''))
+                        message = f'Incomplete upstream response ({first})' + (': ' + native_error if native_error else '')
+                        if admission.status is not None and admission.status != 200:
+                            raise UpstreamHTTPError(message, admission.status)
+                        raise RuntimeError(message)
                     assistants = [admission.capture.message]
                     stopped = True
                 native_failure_handled = admission.denied or (admission.used and assistants[0].get('stop_reason') == 'refusal')
