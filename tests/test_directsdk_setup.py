@@ -5,6 +5,40 @@ import os
 import sys
 import textwrap
 
+import pytest
+
+
+@pytest.mark.parametrize("prefix", [".local/bin", ".claude/local", "bin", ".npm-global/bin", ".bun/bin", ".volta/bin"])
+def test_resolves_claude_outside_service_path(tmp_path, prefix):
+    from directsdk_setup import _resolve
+
+    binary = tmp_path / prefix / ("claude.exe" if os.name == "nt" else "claude")
+    binary.parent.mkdir(parents=True)
+    binary.write_text("")
+    binary.chmod(0o755)
+    env = {"HOME": str(tmp_path), "USERPROFILE": str(tmp_path), "PATH": str(tmp_path / "empty")}
+    resolved = _resolve(["claude", "--verbose"], env)
+    assert resolved is not None
+    assert os.path.normcase(resolved[0]) == os.path.normcase(str(binary))
+    assert resolved[1:] == ["--verbose"]
+
+
+def test_claude_path_and_explicit_commands_take_precedence(tmp_path):
+    from directsdk_setup import _resolve
+
+    name = "claude.exe" if os.name == "nt" else "claude"
+    for prefix in (".local/bin", "path-bin"):
+        binary = tmp_path / prefix / name
+        binary.parent.mkdir(parents=True)
+        binary.write_text("")
+        binary.chmod(0o755)
+    env = {"HOME": str(tmp_path), "USERPROFILE": str(tmp_path), "PATH": str(tmp_path / "path-bin")}
+    assert os.path.normcase(_resolve(None, env)[0]) == os.path.normcase(str(tmp_path / "path-bin" / name))
+    override = str(tmp_path / ".local/bin" / name)
+    assert _resolve(None, {**env, "CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND": override}) == [override]
+    assert _resolve([str(tmp_path / "missing" / name)], env) is None
+    assert _resolve(["custom-claude-wrapper"], env) is None
+
 
 FAKE_CLI = textwrap.dedent('''
     import json, os, sys

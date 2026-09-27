@@ -18,7 +18,7 @@ except ImportError:
     from admission import Admission
     from model_catalog import MODEL_METADATA, native_model
 
-INSTALL_HINT = ("Claude Code is not installed (no `claude` on PATH). Install it with "
+INSTALL_HINT = ("Claude Code is not installed (not found on PATH or in common install directories). Install it with "
                 "`npm install -g @anthropic-ai/claude-code` or set CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND to the binary.")
 LOGIN_HINT = "Claude Code is installed but not logged in. Run `claude auth login`, then select this provider again."
 LOGGED_OUT_HINT = ("Claude Code is installed but has no usable login in the environment Hermes runs it in. Run `claude auth login` "
@@ -30,6 +30,13 @@ def _resolve(command, env):
     command = list(command) if command else [env.get("CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND") or "claude"]
     head = command[0]
     exe = head if os.path.isabs(head) and os.access(head, os.X_OK) else shutil.which(head, path=env.get("PATH") or os.defpath)
+    if not exe and head == "claude":
+        home = env.get("USERPROFILE" if os.name == "nt" else "HOME")
+        prefixes = [os.path.join(home, prefix) for prefix in
+                    (".local/bin", ".claude/local", "bin", ".npm-global/bin", ".bun/bin", ".volta/bin")] if home else []
+        if os.name != "nt":
+            prefixes.extend(("/opt/homebrew/bin", "/usr/local/bin"))
+        exe = shutil.which(head, path=os.pathsep.join(prefixes))
     return ([exe] + command[1:]) if exe else None
 
 
