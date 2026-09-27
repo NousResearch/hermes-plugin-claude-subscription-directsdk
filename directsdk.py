@@ -159,7 +159,14 @@ def normalize_input_schema(schema):
     return normalized
 
 
+# OpenAI-SDK request options that only shape the HTTP call. Native is a subprocess, so there is
+# no HTTP request for them to reach; Hermes' Relay tracing adds a W3C ``traceparent`` here on
+# every chat_completions call (curator/auxiliary turns), which must not fail the request.
+_TRANSPORT_ONLY = frozenset({'extra_headers'})
+
+
 def request_body(kwargs):
+    kwargs = {k: v for k, v in kwargs.items() if k not in _TRANSPORT_ONLY}
     allowed = {'model', 'messages', 'tools', 'stream', 'stream_options', 'max_tokens', 'max_completion_tokens',
                'temperature', 'top_p', 'stop', 'extra_body', 'timeout', 'tool_choice', 'parallel_tool_calls', 'n', 'response_format'}
     unknown = set(kwargs) - allowed

@@ -192,6 +192,17 @@ class Contract(unittest.TestCase):
             self.assertNotIsInstance(raised.exception, directsdk.ClaudeCodeLoggedOut)
             other.close()
 
+    def test_transport_only_headers_are_ignored(self):
+        import directsdk
+
+        # Hermes' Relay tracing injects a traceparent into extra_headers; there is no HTTP hop.
+        traced = directsdk.request_body(
+            {**self.request(), "extra_headers": {"traceparent": "00-" + "1" * 32 + "-" + "2" * 16 + "-01"}}
+        )
+        self.assertEqual(traced, directsdk.request_body(self.request()))
+        with self.assertRaisesRegex(ValueError, "Unsupported request parameters: bogus"):
+            directsdk.request_body({**self.request(), "extra_headers": {}, "bogus": 1})
+
     def test_fail_closed_and_cancellation(self):
         import directsdk
 
