@@ -106,6 +106,12 @@ def content_blocks(content):
             result.append(copy.deepcopy(block))
         elif kind == 'image_url':
             url = block['image_url']['url']
+            if url.startswith(('http://', 'https://')):
+                # Native routing passes remote URLs through; the transport never fetches. A hint
+                # keeps the turn alive where an error would fail every retry of the same history.
+                result.append({'type': 'text', 'text': f'[Image not attached: remote URL {url}. '
+                               'Call vision_analyze with this URL to see it.]'})
+                continue
             if not url.startswith('data:') or ';base64,' not in url:
                 raise ValueError('Only base64 data image_url inputs are supported')
             media, data = url[5:].split(';base64,', 1)

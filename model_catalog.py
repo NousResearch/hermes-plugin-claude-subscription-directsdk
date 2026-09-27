@@ -59,3 +59,10 @@ MODEL_METADATA = {
     native_model(model): {'canonical_model': model, 'context_window': window}
     for model, window in CONTEXT_WINDOWS.items()
 }
+
+
+# Core looks capabilities up by exact id, so key the canonical id, the native `[1m]` route and
+# every alias (each targets a pinned id). Unpinned ids keep the catalog path.
+VISION_CAPABILITIES = {
+    model_id: {'supports_vision': True} for model_id in (*CONTEXT_WINDOWS, *MODEL_METADATA, *ALIASES)
+}
