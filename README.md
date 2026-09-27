@@ -67,6 +67,71 @@ export CLAUDE_SUBSCRIPTION_DIRECTSDK_CONFIG_DIR=/path/to/official-cli-config
 
 An inherited `CLAUDE_CONFIG_DIR` also works. To select an executable outside PATH, set `CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND` to its absolute path. There is no unrestricted public CLI-flags setting; isolation and denial flags are plugin-owned. The low-level Python `Client(env=...)` injection is available for explicitly controlled local fixtures and does not apply the inherited-environment guard. It is not the normal Hermes provider path or an OAuth certification mechanism.
 
+### When a native spawn dies mid-refresh the store is left empty
+
+The plugin leaves the credential store to the official CLI, so the login is whatever that CLI has in
+its auth directory — by default the same `~/.claude` every other Claude Code client for this OS user
+is also using. An OAuth login is a **single-use refresh token**: a copy of one is not a second
+credential, it is the same credential with two owners, and the first owner to refresh it revokes it
+for the others. That is why this transient is retried rather than treated as fatal:
+
+```
+Failed to refresh OAuth token: another Claude Code process is refreshing it or exited mid-refresh
+```
+
+Concurrent native spawns from this provider alone are the expected case: Hermes' auxiliary tasks
+inherit the main provider unless they are pinned, so a session-title or compression call spawns its
+own process while a main turn is running. They usually resolve themselves — but the second arm of
+that message is not a wait-and-retry. When the process holding the refresh dies, the store is left
+empty, and the retries then end in a failure that reads like an ordinary expiry but is not:
+
+```
+Claude Code is installed but has no usable login in the environment Hermes runs it in.
+(native: Failed to authenticate: OAuth session expired and could not be refreshed)
+```
+
+The log shows both arms of that message in order. An auxiliary title-generation call and a main turn
+created their clients in the same second (`shared=False` and `shared=True` on one provider), the
+auxiliary process died on its private cwd because that directory had been pruned
+(`FileNotFoundError: .../claude-directsdk-cwd-*`), and eight seconds later the main turn's call
+reported the refresh conflict. The credential store was rewritten empty four seconds before the next
+call failed to authenticate. A shared directory plus a second client of the same OS user — a second
+CLI install, a remote server session, anything that signs in or out — puts it in the same position
+for the same reason.
+
+The credential store is the tell: `claude auth status` answered
+`loggedIn: false` with `authMethod: none`, and the `claudeAiOauth` block was empty —
+`accessToken: ""`, `refreshToken: ""`, `expiresAt: 0`. No amount of retrying recovers from that; the
+login has to be redone.
+
+Give the provider its own login instead of a shared one, and sign in **before** pointing the
+provider at it, so it never reads an empty directory:
+
+```sh
+mkdir -p "$HOME/.claude-directsdk"
+CLAUDE_CONFIG_DIR="$HOME/.claude-directsdk" claude auth login
+CLAUDE_CONFIG_DIR="$HOME/.claude-directsdk" claude auth status   # expect loggedIn: true
+hermes config set CLAUDE_SUBSCRIPTION_DIRECTSDK_CONFIG_DIR "$HOME/.claude-directsdk"
+```
+
+`hermes config set` routes this plugin-declared variable to `~/.hermes/.env`, which is the path the
+provider reads. Without a dedicated directory the provider keeps sharing `~/.claude` with every
+other client of this OS user.
+
+Pinning the mechanical auxiliary tasks is the direct fix for that concurrency: it takes the second
+native process out of the directory. Point them at a cheaper provider you already have, with the
+model alongside it:
+
+```sh
+hermes config set auxiliary.title_generation.provider <provider>
+hermes config set auxiliary.title_generation.model <model>
+hermes config set auxiliary.compression.provider <provider>
+hermes config set auxiliary.compression.model <model>
+```
+
+Keep `auxiliary.vision` on a multimodal provider, and `auxiliary.approval` (smart command approval)
+on the strongest model available.
+
 Persistent configuration:
 
 ```yaml
