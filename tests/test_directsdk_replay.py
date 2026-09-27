@@ -17,19 +17,18 @@ SPEC.loader.exec_module(native)
 
 
 def test_host_history_edits_replay_canonical_visible_blocks():
-    from agent.context_compressor import ContextCompressor
-
     msg = {"role": "assistant", "content": "Writing.", "tool_calls": [{"id": "t1", "type": "function", "function": {"name": "write_file", "arguments": json.dumps({"path": "x", "content": "a" * 3000})}}]}
     blocks = [{"type": "thinking", "thinking": "private", "signature": "opaque"}, {"type": "text", "text": "Writing."}, {"type": "tool_use", "id": "t1", "name": native.PREFIX + "write_file", "input": {"path": "x", "content": "a" * 3000}}]
     msg["reasoning_details"] = [{"type": native.CARRIER, "version": 1, "projection": native.projection(msg), "messages": [{"role": "assistant", "content": blocks}]}]
     history = [{"role": "user", "content": "write"}, msg, {"role": "tool", "tool_call_id": "t1", "content": "ok"}]
     original = copy.deepcopy(history)
     assert native.prepare_history(history)[1][1]["message"]["content"] == blocks
-    assert ContextCompressor._truncate_tool_call_args_at(history, 1)
+    # Current Hermes no longer rewrites old tool-call arguments during compression.
+    # A host edit to visible assistant content must still reject stale signed replay.
+    history[1]["content"] = "Hook replacement"
     frame = native.prepare_history(history)[1][1]["message"]
     assert [b["type"] for b in frame["content"]] == ["text", "tool_use"]
     assert frame["content"][-1]["input"] == json.loads(history[1]["tool_calls"][0]["function"]["arguments"])
-    history[1]["content"] = "Hook replacement"
     assert native.prepare_history(history)[1][1]["message"]["content"][0]["text"] == "Hook replacement"
     assert history[1]["reasoning_details"] == original[1]["reasoning_details"]
     history[1]["reasoning_details"][0]["version"] = 999
