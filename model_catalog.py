@@ -61,8 +61,19 @@ MODEL_METADATA = {
 }
 
 
-# Core looks capabilities up by exact id, so key the canonical id, the native `[1m]` route and
-# every alias (each targets a pinned id). Unpinned ids keep the catalog path.
-VISION_CAPABILITIES = {
-    model_id: {'supports_vision': True} for model_id in (*CONTEXT_WINDOWS, *MODEL_METADATA, *ALIASES)
+def _session_ids(canonical):
+    """Every id a session may carry for a pinned route: core looks capabilities up by exact id."""
+    aliases = [alias for alias, target in ALIASES.items() if target == canonical]
+    ids = {canonical, native_model(canonical), *aliases}
+    if CONTEXT_WINDOWS[canonical] == 1_000_000:
+        ids.update(alias + '[1m]' for alias in aliases)
+    return ids
+
+
+# Declared with the window: a declared model without one falls to core's 200K unknown-model
+# default in the capability lookup (dashboard model info). Unpinned ids keep the catalog path.
+MODEL_CAPABILITIES = {
+    model_id: {'supports_vision': True, 'context_window': window}
+    for canonical, window in CONTEXT_WINDOWS.items()
+    for model_id in _session_ids(canonical)
 }

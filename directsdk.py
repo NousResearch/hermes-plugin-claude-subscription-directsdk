@@ -106,7 +106,7 @@ def content_blocks(content):
             result.append(copy.deepcopy(block))
         elif kind == 'image_url':
             url = block['image_url']['url']
-            if url.startswith(('http://', 'https://')):
+            if url[:8].lower().startswith(('http://', 'https://')):
                 # Native routing passes remote URLs through; the transport never fetches. A hint
                 # keeps the turn alive where an error would fail every retry of the same history.
                 result.append({'type': 'text', 'text': f'[Image not attached: remote URL {url}. '

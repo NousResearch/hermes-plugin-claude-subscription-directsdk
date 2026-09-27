@@ -10,10 +10,10 @@ from providers.base import ProviderProfile
 
 # Dual import: the Hermes loader imports this directory as a package; the flat test path does not.
 try:
-    from .model_catalog import ALIASES, MODEL_METADATA, VISION_CAPABILITIES, native_model
+    from .model_catalog import ALIASES, MODEL_METADATA, MODEL_CAPABILITIES, native_model
     from .directsdk_setup import INSTALL_HINT, _resolve
 except ImportError:
-    from model_catalog import ALIASES, MODEL_METADATA, VISION_CAPABILITIES, native_model
+    from model_catalog import ALIASES, MODEL_METADATA, MODEL_CAPABILITIES, native_model
     from directsdk_setup import INSTALL_HINT, _resolve
 
 logger = logging.getLogger(__name__)
@@ -210,7 +210,7 @@ profile = ClaudeOAuthDirectSDKProfile(
     supports_health_check=False,
     # Per-model only: the profile-wide supports_vision would also flip computer_use screenshots
     # for unpinned ids to native, where the executor still treats them as text-only.
-    model_capabilities=VISION_CAPABILITIES,
+    model_capabilities=MODEL_CAPABILITIES,
     native_reasoning_details_type='claude-subscription-directsdk-experimental.native_assistant',
     env_vars=(),
     base_url='process://claude-subscription-directsdk-experimental',
