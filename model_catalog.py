@@ -9,8 +9,10 @@ CONTEXT_WINDOWS = {
 }
 # Families that 400 on ``thinking: {"type": "disabled"}`` (the same contract Hermes core keeps
 # in agent/anthropic_adapter.py). A caller's disable is omitted for them: thinking stays on at
-# the model's default, which beats a dead request.
-MANDATORY_THINKING = ('claude-fable',)
+# the model's default, which beats a dead request. Opus 5.5 joined Fable: the docs say thinking
+# cannot be turned off there and the API answers the disable with the same 400 (#22). Plain
+# Opus 5 still accepts it, so the entry is the full `claude-opus-5-5` prefix.
+MANDATORY_THINKING = ('claude-fable', 'claude-opus-5-5')
 ALIASES = {
     'sonnet': 'claude-sonnet-5',
     'haiku': 'claude-haiku-4-5-20251001',

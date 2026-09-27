@@ -36,11 +36,11 @@ window and which plans include it; the model table for the minimum CLI version).
    window from the docs. Do not copy a window from a sibling model.
 2. `ALIASES` — move the family alias (`opus`, `sonnet`, `fable`, `haiku`) when the docs move it.
 3. `MANDATORY_THINKING` / `NO_ADAPTIVE_THINKING` if the docs say thinking cannot be turned off
-   or adaptive thinking 400s (Fable and Haiku 4.5 today). Mirror what
-   `agent/anthropic_adapter.py` in hermes-agent encodes; if the two disagree, fix both. Open
-   question: the docs also say thinking cannot be turned off on Opus 5.5, but whether the API
-   400s the disable (as on Fable) or ignores it is unverified; probe before adding it to
-   `MANDATORY_THINKING`.
+   or adaptive thinking 400s (Fable, Opus 5.5 and Haiku 4.5 today). Mirror what
+   `agent/anthropic_adapter.py` in hermes-agent encodes; if the two disagree, fix both. Opus 5.5
+   was settled by #22: the docs say thinking cannot be turned off there and the API 400s the
+   disable exactly as on Fable. Core's `_MANDATORY_THINKING_CLAUDE_SUBSTRINGS` still needs the
+   same entry.
 4. `tests/test_directsdk_models.py::EXPECTED` — one row per route, window included. The test
    drives the fake CLI and checks the argv Hermes actually sends.
 5. `README.md` → Requirements: the minimum Claude Code version the model needs.
