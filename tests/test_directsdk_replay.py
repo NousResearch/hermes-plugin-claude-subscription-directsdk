@@ -23,14 +23,17 @@ def test_host_history_edits_replay_canonical_visible_blocks():
     history = [{"role": "user", "content": "write"}, msg, {"role": "tool", "tool_call_id": "t1", "content": "ok"}]
     original = copy.deepcopy(history)
     assert native.prepare_history(history)[1][1]["message"]["content"] == blocks
-    # A host-side rewrite of the tool-call arguments (Hermes compression used to truncate them) must
-    # drop the stale signed thinking and replay the canonical tool_use from the edited arguments.
-    history[1]["tool_calls"][0]["function"]["arguments"] = json.dumps({"path": "x", "content": "a" * 200 + "...[truncated]"})
+    # Hermes compaction keeps tool-call arguments byte-exact and only demotes tool-result bodies, so the
+    # signed native blocks must survive it verbatim.
+    history[2]["content"] = "[tool result demoted]"
+    assert native.prepare_history(history)[1][1]["message"]["content"] == blocks
+    # Hooks still own visible assistant content: an edit must drop the stale signed thinking and replay
+    # canonical text and tool_use built from the host message.
+    history[1]["content"] = "Hook replacement"
     frame = native.prepare_history(history)[1][1]["message"]
     assert [b["type"] for b in frame["content"]] == ["text", "tool_use"]
+    assert frame["content"][0]["text"] == "Hook replacement"
     assert frame["content"][-1]["input"] == json.loads(history[1]["tool_calls"][0]["function"]["arguments"])
-    history[1]["content"] = "Hook replacement"
-    assert native.prepare_history(history)[1][1]["message"]["content"][0]["text"] == "Hook replacement"
     assert history[1]["reasoning_details"] == original[1]["reasoning_details"]
     history[1]["reasoning_details"][0]["version"] = 999
     with pytest.raises(ValueError, match="version"):
