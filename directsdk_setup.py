@@ -80,7 +80,7 @@ def discover_models(command=None, env=None, timeout=40):
     if resolved is None or not setup_status(command=resolved, env=env, timeout=timeout)["logged_in"]:
         return None
     child = _child_env(env)
-    gate = Admission("https://api.anthropic.com", timeout)
+    gate = Admission("https://api.anthropic.com", timeout, env=child)
     try:
         child["ANTHROPIC_BASE_URL"] = gate.url
         argv = resolved + ["-p", "--model", "sonnet", "--input-format", "stream-json", "--output-format", "stream-json",

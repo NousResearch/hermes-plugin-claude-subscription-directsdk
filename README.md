@@ -77,6 +77,10 @@ model:
 
 Auxiliary/fallback routing remains owned by Hermes. Configure those routes explicitly if they must also use the subscription; this provider does not silently change other selected providers.
 
+### Proxies
+
+The plugin's upstream admission honors the standard proxy environment variables of the process that launched Hermes: `HTTPS_PROXY` (then `https_proxy`, `ALL_PROXY`, `all_proxy`) selects an HTTP CONNECT proxy for the hop to `api.anthropic.com`, and `NO_PROXY`/`no_proxy` carves out exceptions (comma-separated hosts or domain suffixes, optionally with a port, or `*` for everything). Percent-encoded userinfo in the proxy URL is decoded and sent as `Proxy-Authorization: Basic ...` on the CONNECT. SOCKS proxies are not supported by the native transport; a socks URL in `ALL_PROXY` is rejected with a clear error. Direct egress is used when no proxy variable is set or the upstream host matches `NO_PROXY`.
+
 ## Ownership and replay
 
 Each `chat.completions.create` starts a fresh process in a private temporary directory. Native tools, skills and setting sources are disabled. MCP advertises only the current Hermes tool inventory, has inert callbacks, and is denied execution by native `dontAsk`. Full descriptions and schemas are supplied through tools plus validated generation fields in `CLAUDE_CODE_EXTRA_BODY`, applied from a private native settings file; the system prompt uses a private file too. This avoids the OS per-argument/environment-string limit. Authentication and identity fields are never replaced.

@@ -1,16 +1,18 @@
 """Request-scoped native HTTP admission; credentials are forwarded, never persisted."""
+import base64
 import codecs
 import copy
 import http.client
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import ipaddress
 import json
+import os
 import re
 import secrets
 import socket
 import ssl
 import threading
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 
 UNCACHEABLE = ('thinking', 'redacted_thinking')
@@ -131,7 +133,7 @@ class Capture:
 
 
 class Admission:
-    def __init__(self, upstream, timeout, queried=None):
+    def __init__(self, upstream, timeout, queried=None, env=None):
         self.upstream = urlsplit(upstream)
         self.queried = queried
         host = self.upstream.hostname
@@ -142,6 +144,8 @@ class Admission:
         if (self.upstream.scheme != 'https' and not (self.upstream.scheme == 'http' and local)) or not host or self.upstream.username or self.upstream.password or self.upstream.query or self.upstream.fragment:
             raise ValueError('Native upstream must be HTTPS or a loopback HTTP fixture')
         self.timeout = timeout
+        self.env = dict(os.environ if env is None else env)
+        self.proxy = self._proxy_for(host)
         self.lock = threading.Lock()
         self.sockets = set()
         self.cancelled = False
@@ -158,6 +162,44 @@ class Admission:
         self.url = f'http://127.0.0.1:{self.server.server_port}' + self.prefix
         self.thread = threading.Thread(target=self.server.serve_forever, kwargs={'poll_interval':.05}, daemon=True)
         self.thread.start()
+
+    def _proxy_for(self, host):
+        # NO_PROXY supports '*' and comma-separated hosts/domains, optionally with ports.
+        no_proxy = self.env.get('NO_PROXY') or self.env.get('no_proxy') or ''
+        for entry in no_proxy.split(','):
+            entry = entry.strip().lower()
+            if not entry:
+                continue
+            if entry == '*':
+                return None
+            if entry.startswith('[') and ']' in entry:
+                entry = entry[1:entry.index(']')]
+            elif entry.count(':') == 1:
+                entry = entry.rsplit(':', 1)[0]
+            suffix = entry.lstrip('.')
+            if host.lower() == suffix or host.lower().endswith('.' + suffix):
+                return None
+        # Lowercase variables are common in Unix environments; explicit HTTPS_PROXY wins.
+        raw = self.env.get('HTTPS_PROXY') or self.env.get('https_proxy')
+        if not raw:
+            raw = self.env.get('ALL_PROXY') or self.env.get('all_proxy')
+        if not raw:
+            return None
+        proxy = urlsplit(raw if '://' in raw else 'http://' + raw)
+        if proxy.scheme != 'http' or not proxy.hostname:
+            raise ValueError('Native admission requires an http:// HTTP CONNECT proxy')
+        try:
+            proxy.port
+        except ValueError as exc:
+            raise ValueError('Invalid proxy port') from exc
+        return proxy
+
+    def proxy_tunnel_headers(self):
+        if not self.proxy or self.proxy.username is None:
+            return None
+        password = unquote(self.proxy.password or '')
+        token = base64.b64encode((unquote(self.proxy.username) + ':' + password).encode()).decode()
+        return {'Proxy-Authorization': 'Basic ' + token}
 
     def error_text(self):
         """The upstream's own message for a non-200 answer, '' when none was captured."""
@@ -214,7 +256,11 @@ class Handler(BaseHTTPRequestHandler):
             payload = pin_message_breakpoint(payload, gate.queried)
             target = gate.upstream
             if target.scheme == 'https':
-                conn = http.client.HTTPSConnection(target.hostname, target.port, timeout=gate.timeout, context=ssl.create_default_context())
+                if gate.proxy:
+                    conn = http.client.HTTPSConnection(gate.proxy.hostname, gate.proxy.port, timeout=gate.timeout, context=ssl.create_default_context())
+                    conn.set_tunnel(target.hostname, target.port or 443, headers=gate.proxy_tunnel_headers())
+                else:
+                    conn = http.client.HTTPSConnection(target.hostname, target.port, timeout=gate.timeout, context=ssl.create_default_context())
             else:
                 conn = http.client.HTTPConnection(target.hostname, target.port, timeout=gate.timeout)
             conn.connect()
