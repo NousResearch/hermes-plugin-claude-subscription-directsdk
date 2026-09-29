@@ -1,5 +1,6 @@
 """Pinned native routes; a loopback gateway needs explicit long-context selection."""
 CONTEXT_WINDOWS = {
+    'claude-sonnet-5-5': 1_000_000,
     'claude-sonnet-5': 1_000_000,
     'claude-haiku-4-5-20251001': 200_000,
     'claude-opus-5-5': 1_000_000,
@@ -12,7 +13,7 @@ CONTEXT_WINDOWS = {
 # the model's default, which beats a dead request.
 MANDATORY_THINKING = ('claude-fable',)
 ALIASES = {
-    'sonnet': 'claude-sonnet-5',
+    'sonnet': 'claude-sonnet-5-5',
     'haiku': 'claude-haiku-4-5-20251001',
     'claude-haiku-4-5': 'claude-haiku-4-5-20251001',
     'opus': 'claude-opus-5-5',
