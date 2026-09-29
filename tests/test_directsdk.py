@@ -337,6 +337,18 @@ class Contract(unittest.TestCase):
                 self.assertEqual(result.choices[0].finish_reason, "tool_calls")
 
             asyncio.run(run())
+
+            # A *sync* caller that happens to run on an event-loop thread (Hermes' NeMo Relay
+            # managed execution drives the agent's sync provider callback inside asyncio.run)
+            # must get a completed response, not an un-awaited coroutine.
+            async def sync_caller_in_loop():
+                def sync_provider_callback():
+                    return client.chat.completions.create(**self.request())
+                return sync_provider_callback()
+
+            result = asyncio.run(sync_caller_in_loop())
+            self.assertFalse(asyncio.iscoroutine(result), "sync caller inside a running loop got a coroutine")
+            self.assertEqual(result.choices[0].finish_reason, "tool_calls")
             cancel_pidfile = Path(tmp) / "cancel-pid"
             hanging = self.client(tmp, HANG="1", PID_FILE=str(cancel_pidfile))
             stream = hanging.chat.completions.create(**self.request(), stream=True)

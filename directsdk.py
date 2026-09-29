@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import atexit
 import copy
+import inspect
 import json
 import math
 import os
@@ -508,13 +509,18 @@ class Client:
         return shared_workdir() or process_workdir()
 
     def create(self, **kwargs):
-        # Hermes' auxiliary seam returns this same object and awaits create.
+        # Hermes' auxiliary seam returns this same object and awaits create. A running loop alone
+        # does not mean the caller awaits: Hermes' NeMo Relay managed execution runs the agent's
+        # *sync* provider callback inside asyncio.run, and a coroutine handed back there is never
+        # awaited (TypeError in relay_llm._jsonable). Go async only for a coroutine caller.
         try:
             asyncio.get_running_loop()
         except RuntimeError:
             pass
         else:
-            return self._acreate(**kwargs)
+            caller = sys._getframe(1).f_code.co_flags
+            if caller & (inspect.CO_COROUTINE | inspect.CO_ASYNC_GENERATOR | inspect.CO_ITERABLE_COROUTINE):
+                return self._acreate(**kwargs)
         return self._create(**kwargs)
 
     async def _acreate(self, **kwargs):
