@@ -1,5 +1,6 @@
 """Pinned native routes; a loopback gateway needs explicit long-context selection."""
 CONTEXT_WINDOWS = {
+    'claude-sonnet-5-5': 1_000_000,
     'claude-sonnet-5': 1_000_000,
     'claude-haiku-4-5-20251001': 200_000,
     'claude-opus-5-5': 1_000_000,
@@ -9,10 +10,13 @@ CONTEXT_WINDOWS = {
 }
 # Families that 400 on ``thinking: {"type": "disabled"}`` (the same contract Hermes core keeps
 # in agent/anthropic_adapter.py). A caller's disable is omitted for them: thinking stays on at
-# the model's default, which beats a dead request.
-MANDATORY_THINKING = ('claude-fable',)
+# the model's default, which beats a dead request. Probed 2026-09-29 against the subscription:
+# claude-sonnet-5-5 answers ``"thinking.type.disabled" is not supported for this model``, the
+# same 400 Fable gives. The docs make the same claim for claude-opus-5-5, but that one is
+# UNPROBED here (it 400s or ignores the disable, unknown), so it stays off until a probe says so.
+MANDATORY_THINKING = ('claude-fable', 'claude-sonnet-5-5')
 ALIASES = {
-    'sonnet': 'claude-sonnet-5',
+    'sonnet': 'claude-sonnet-5-5',
     'haiku': 'claude-haiku-4-5-20251001',
     'claude-haiku-4-5': 'claude-haiku-4-5-20251001',
     'opus': 'claude-opus-5-5',

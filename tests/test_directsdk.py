@@ -88,8 +88,10 @@ class Contract(unittest.TestCase):
         )
 
     def request(self) -> dict:
+        # Opus 5 accepts a thinking disable (Sonnet 5.5 and Fable do not, covered below),
+        # so the shared body keeps exercising the disable branch.
         return dict(
-            model="sonnet",
+            model="opus",
             messages=[{"role": "user", "content": "go"}],
             tools=[
                 {
@@ -204,13 +206,18 @@ class Contract(unittest.TestCase):
         self.assertEqual(disabled["context_management"], {"edits": []})
         # Fable rejects the disable (HTTP 400 "thinking.type.disabled is not supported"), so a
         # caller's disable is omitted rather than sent: thinking stays on, the request survives.
-        mandatory = json.loads(
-            directsdk.request_body(
-                {**self.request(), "model": "fable", "extra_body": {"reasoning": {"enabled": False}}}
-            )[0]
-        )
-        self.assertNotIn("thinking", mandatory)
-        self.assertNotIn("context_management", mandatory)
+        for mandatory_route in ("fable", "sonnet", "claude-sonnet-5-5"):
+            mandatory = json.loads(
+                directsdk.request_body(
+                    {
+                        **self.request(),
+                        "model": mandatory_route,
+                        "extra_body": {"reasoning": {"enabled": False}},
+                    }
+                )[0]
+            )
+            self.assertNotIn("thinking", mandatory)
+            self.assertNotIn("context_management", mandatory)
         effort = json.loads(
             directsdk.request_body(
                 {**self.request(), "extra_body": {"reasoning": {"effort": "low"}}}

@@ -9,6 +9,7 @@ Standalone Hermes Agent model-provider plugin: `claude-subscription-directsdk-ex
 - Hermes Agent 0.21.4 or newer, or `main` at/after `118984d7a02f` (hermes-agent PR #117451, the core half of #105863). On an older Hermes the plugin fails to load with a clear `Failed to load user provider plugin` warning rather than half-working.
 - Python 3.10+ on Linux, macOS or Windows. Native runs in its own process group (POSIX session / Windows `CREATE_NEW_PROCESS_GROUP`) and cancellation kills the whole tree (`killpg` / `taskkill /T`), so the `node` child behind the npm `claude.cmd` shim never outlives a cancelled request. The suite runs on all three in CI.
 - **The official Claude Code CLI, installed and logged in.** This plugin has no credentials of its own; everything goes through `claude`.
+- **A Claude Code new enough for the models you select.** Anthropic gates each model behind a minimum CLI, and an older CLI answers an unknown id rather than saying so: `Sonnet 5.5 requires Claude Code v2.1.284 or later` (2.1.280 for Opus 5.5, 2.1.257 for Fable 5.1). A stale CLI makes the model 404 upstream, which this transport surfaces as an admission refusal rather than a routing fault. Check with `claude --version`, and upgrade with `claude update` (or your package manager, if that is what installed it).
 
 The plugin checks for `claude` at every seam and never guesses:
 
@@ -137,6 +138,7 @@ The picker exposes these explicit native routes:
 
 | Model | Native selection | Context |
 | --- | --- | --- |
+| Sonnet 5.5 | `claude-sonnet-5-5[1m]` | 1,000,000 |
 | Sonnet 5 | `claude-sonnet-5[1m]` | 1,000,000 |
 | Haiku 4.5 | `claude-haiku-4-5-20251001` | 200,000 |
 | Opus 5.5 | `claude-opus-5-5[1m]` | 1,000,000 |
@@ -144,7 +146,7 @@ The picker exposes these explicit native routes:
 | Opus 4.8 | `claude-opus-4-8[1m]` | 1,000,000 |
 | Fable 5.1 | `claude-fable-5-1[1m]` | 1,000,000 |
 
-Short names `sonnet`, `haiku`, `opus` and `fable` resolve to the corresponding pinned routes above. Known 1M model IDs also receive the native `[1m]` suffix automatically; Haiku does not. Unknown model IDs pass through unchanged and are never promised 1M: a plain one reports the 200K window native Claude Code applies to an unverifiable id behind the relay, so Hermes' own family-name guess (which would size `claude-opus-5-5` at 1M before it was pinned) cannot budget past it; an unknown `[1m]` id reports nothing, and no Hermes estimate for it exceeds the native 1M. An explicit Hermes `model.context_length` still overrides the host's window, including a smaller compaction budget.
+Short names `sonnet`, `haiku`, `opus` and `fable` resolve to the corresponding pinned routes above; `sonnet` is Sonnet 5.5, the current Sonnet. Known 1M model IDs also receive the native `[1m]` suffix automatically; Haiku does not. Unknown model IDs pass through unchanged and are never promised 1M: a plain one reports the 200K window native Claude Code applies to an unverifiable id behind the relay, so Hermes' own family-name guess (which would size `claude-opus-5-5` at 1M before it was pinned) cannot budget past it; an unknown `[1m]` id reports nothing, and no Hermes estimate for it exceeds the native 1M. An explicit Hermes `model.context_length` still overrides the host's window, including a smaller compaction budget.
 
 The local relay sets `ANTHROPIC_BASE_URL`, which makes Claude Code apply its gateway defaults. Its documented Sonnet 5 gateway default is 200K unless `[1m]` is selected; this was the cause of the earlier downgrade, not evidence of a general subscription limit. Both native argv and Hermes metadata now select the same window. See [Claude Code model configuration](https://code.claude.com/docs/en/model-config#sonnet-5-context-window).
 
