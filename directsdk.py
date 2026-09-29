@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import logging
 import math
 import os
 from pathlib import Path
@@ -40,6 +41,7 @@ class ClaudeCodeLoggedOut(RuntimeError):
 
 CARRIER = 'claude-subscription-directsdk-experimental.native_assistant'
 PREFIX = 'mcp__hermes__'
+logger = logging.getLogger(__name__)
 
 
 class Object(SimpleNamespace):
@@ -561,13 +563,20 @@ class Client:
                 reader = threading.Thread(target=read, daemon=True)
                 reader.start()
                 deadline = time.monotonic() + timeout
+                phase = 'history_replay'
+                last_event_type = None
                 def receive():
-                    nonlocal deadline
+                    nonlocal deadline, last_event_type
                     while True:
                         if request.cancelled.is_set():
                             raise RuntimeError('Claude request cancelled')
                         remaining = deadline - time.monotonic()
                         if remaining <= 0:
+                            logger.error(
+                                'Claude native idle timeout model=%s phase=%s idle_limit_s=%s native_pid=%s last_event=%s upstream_used=%s upstream_status=%s',
+                                kwargs['model'], phase, timeout, getattr(p, 'pid', None), last_event_type,
+                                request.admission.used, request.admission.status,
+                            )
                             raise TimeoutError('Claude request timed out')
                         try:
                             event = events.get(timeout=min(remaining, .2))
@@ -576,6 +585,7 @@ class Client:
                         if isinstance(event, Exception):
                             # The offending stdout line is the whole diagnosis (a shim banner, a stray print); keep it.
                             raise RuntimeError('Invalid native stream-json output: ' + repr((getattr(event, 'doc', None) or str(event))[:300])) from event
+                        last_event_type = event.get('type') if isinstance(event, dict) else 'eof'
                         deadline = time.monotonic() + timeout
                         return event
                 for index, frame in enumerate(frames):
@@ -594,6 +604,7 @@ class Client:
                                     raise RuntimeError('Native history replay not supported: expected zero-turn acknowledgment')
                                 break
                 p.stdin.close()
+                phase = 'response'
                 assistants, results, stopped, emitted = [], [], False, ''
                 native_error = native_error_code = None
                 while True:
@@ -624,6 +635,7 @@ class Client:
                 if request.cancelled.is_set():
                     raise RuntimeError('Claude request cancelled')
                 admission = request.admission
+                native_assistants = assistants
                 if admission.used:
                     if admission.status != 200 or not admission.capture.complete:
                         # Native's last error is the admission denial; name the first attempt's outcome so reports are diagnosable.
@@ -657,15 +669,57 @@ class Client:
                 if not isinstance(usage, dict) or not all(isinstance(usage.get(k), (int, float)) for k in ('input_tokens', 'output_tokens')):
                     raise RuntimeError('Native result missing complete token usage')
                 text = ''.join(b.get('text', '') for b in blocks if b.get('type') == 'text')
+                reasoning = ''.join(b.get('thinking', '') for b in blocks if b.get('type') == 'thinking')
+                refusal_without_content = bool(
+                    admission.used and assistants[0].get('stop_reason') == 'refusal'
+                    and not text and not reasoning and not calls
+                )
+                refusal_details = assistants[0].get('stop_details') if refusal_without_content else None
+                if not isinstance(refusal_details, dict):
+                    refusal_details = {}
+                if not text and not reasoning and not calls:
+                    result_text = final.get('result')
+                    logger.warning(
+                        'Claude native empty completion model=%s native_message=%s upstream_request=%s upstream_used=%s upstream_status=%s blocked_requests=%s capture_complete=%s native_assistants=%s native_block_types=%s accepted_block_types=%s stop_reasons=%s refusal_category=%s refusal_has_explanation=%s result_subtype=%s result_chars=%s output_tokens=%s output_limit=%s effort=%s thinking=%s stop_count=%s tool_count=%s frame_count=%s last_frame_types=%s exit_code=%s',
+                        kwargs['model'], assistants[-1].get('id'), admission.request_id,
+                        admission.used, admission.status, admission.denied, admission.capture.complete,
+                        len(native_assistants),
+                        [b.get('type') for a in native_assistants for b in a.get('content', [])],
+                        [b.get('type') for b in blocks],
+                        [a.get('stop_reason') for a in assistants],
+                        refusal_details.get('category'), bool(refusal_details.get('explanation')),
+                        final.get('subtype'),
+                        len(result_text) if isinstance(result_text, str) else 0,
+                        usage['output_tokens'], parsed.get('max_tokens'),
+                        parsed.get('output_config', {}).get('effort'),
+                        parsed.get('thinking', {}).get('type'),
+                        len(parsed.get('stop_sequences') or []), len(names), len(frames),
+                        [b.get('type') for b in frames[-1]['message']['content']], p.returncode,
+                    )
+                if refusal_without_content:
+                    # Native may turn the admission gate's own second-request 400 into final.result.
+                    # The first captured upstream message is the authority; with no content in that
+                    # refusal, show a neutral refusal instead of leaking HERMES_MODEL_ADMISSION_CONSUMED.
+                    explanation = refusal_details.get('explanation')
+                    category = refusal_details.get('category')
+                    if isinstance(explanation, str) and explanation.strip():
+                        text = 'Claude refused this request: ' + explanation.strip()
+                    elif isinstance(category, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,63}', category):
+                        text = f'Claude refused this request (category: {category}).'
+                    else:
+                        text = 'Claude refused this request.'
                 if emitted != text:
                     if text.startswith(emitted):
                         yield self._chunk(kwargs['model'], {'content': text[len(emitted):]})
                     else:
                         raise RuntimeError('Native final text differs from incremental stream')
                 message = {'role': 'assistant', 'content': text or None, 'tool_calls': calls or None,
-                           'reasoning_content': ''.join(b.get('thinking', '') for b in blocks if b.get('type') == 'thinking') or None}
-                carrier = {'type': CARRIER, 'version': 1, 'messages': assistants, 'projection': projection(message)}
-                message['reasoning_details'] = [carrier]
+                           'reasoning_content': reasoning or None}
+                # The native refusal carried no content. The CLI's result text is useful to show,
+                # but it was not part of the signed native assistant message. Reconstruct it as
+                # ordinary text on replay instead of attaching a misleading native carrier.
+                carrier = None if refusal_without_content else {'type': CARRIER, 'version': 1, 'messages': assistants, 'projection': projection(message)}
+                message['reasoning_details'] = [carrier] if carrier else None
                 inp = usage['input_tokens'] + usage.get('cache_read_input_tokens', 0) + usage.get('cache_creation_input_tokens', 0)
                 normalized_usage = {'prompt_tokens': inp, 'completion_tokens': usage['output_tokens'], 'total_tokens': inp + usage['output_tokens'], 'prompt_tokens_details': {'cached_tokens': usage.get('cache_read_input_tokens', 0)}, 'cache_creation_input_tokens': usage.get('cache_creation_input_tokens', 0), 'native_usage': usage,
                                     'completion_tokens_details': {'reasoning_tokens': usage.get('output_tokens_details', {}).get('thinking_tokens', 0)},
@@ -673,7 +727,7 @@ class Client:
                 normalized_usage['native_admission'] = {'upstream_requests': int(admission.used), 'blocked_requests': admission.denied, 'request_id': admission.request_id}
                 finish = 'tool_calls' if calls else ('length' if any(a.get('stop_reason') in ('max_tokens', 'model_context_window_exceeded') for a in assistants) else 'stop')
                 response = obj({'id': assistants[-1].get('id', 'claude-native'), 'model': kwargs['model'], 'object': 'chat.completion', 'choices': [{'index': 0, 'finish_reason': finish, 'message': message}], 'usage': normalized_usage})
-                chunk = self._chunk(kwargs['model'], {'content': None, 'tool_calls': [dict(tc, index=i) for i, tc in enumerate(calls)] or None, 'reasoning_details': [carrier]}, finish, normalized_usage)
+                chunk = self._chunk(kwargs['model'], {'content': None, 'tool_calls': [dict(tc, index=i) for i, tc in enumerate(calls)] or None, 'reasoning_details': [carrier] if carrier else None}, finish, normalized_usage)
                 chunk._response = response
                 yield chunk
         finally:

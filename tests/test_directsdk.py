@@ -28,6 +28,10 @@ if os.environ.get('NATIVE_ERROR'):
  print(json.dumps({'type':'assistant','error':code,'is_api_error_message':True,'message':{'role':'assistant','model':'<synthetic>','content':[{'type':'text','text':text}],'stop_reason':'stop_sequence'}}),flush=True)
  print(json.dumps({'type':'result','subtype':'success','is_error':True,'num_turns':1,'result':text}),flush=True)
  sys.exit(1)
+if os.environ.get('NATIVE_REFUSAL'):
+ print(json.dumps({'type':'stream_event','event':{'type':'message_stop'}}),flush=True)
+ print(json.dumps({'type':'result','subtype':'success','is_error':True,'num_turns':1,'result':os.environ.get('NATIVE_REFUSAL_RESULT',''),'usage':{'input_tokens':1,'output_tokens':0}}),flush=True)
+ sys.exit(1)
 if os.environ.get('HANG'):
  if os.environ.get('PID_FILE'):
   # Real native is a shim -> node tree; cancellation must take the grandchild down with it.
@@ -51,6 +55,8 @@ if len(rows)>1:
  else:
   assert rows[1]['message']['content'][0]['text']=='middleware changed'
  blocks=[{'type':'text','text':'done'}]
+if os.environ.get('EMPTY_RESPONSE'):
+ blocks=[]
 for b in blocks:
  if b['type']=='thinking':
   print(json.dumps({'type':'stream_event','event':{'type':'content_block_delta','delta':{'type':'thinking_delta','thinking':b['thinking']}}}),flush=True)
@@ -58,8 +64,8 @@ for b in blocks:
   print(json.dumps({'type':'stream_event','event':{'type':'content_block_delta','delta':{'type':'text_delta','text':b['text']}}}),flush=True)
 print(json.dumps({'type':'assistant','message':{'role':'assistant','content':blocks,'id':'msg_test','model':'sonnet','stop_reason':'tool_use' if len(blocks)>1 else 'end_turn'}}),flush=True)
 print(json.dumps({'type':'stream_event','event':{'type':'message_stop'}}),flush=True)
-u={'input_tokens':3,'output_tokens':5,'cache_read_input_tokens':7,'cache_creation_input_tokens':11,'output_tokens_details':{'thinking_tokens':4}}
-print(json.dumps({'type':'result','num_turns':2 if len(blocks)>1 else 1,'subtype':'error_max_turns' if len(blocks)>1 else 'success','is_error':len(blocks)>1,'usage':u,'total_cost_usd':.012345,'modelUsage':{'sonnet':{'costBasis':'list'}}}),flush=True)
+u={'input_tokens':3,'output_tokens':0 if os.environ.get('EMPTY_RESPONSE') else 5,'cache_read_input_tokens':7,'cache_creation_input_tokens':11,'output_tokens_details':{'thinking_tokens':4}}
+print(json.dumps({'type':'result','num_turns':2 if len(blocks)>1 else 1,'subtype':'error_max_turns' if len(blocks)>1 else 'success','is_error':len(blocks)>1,'result':os.environ.get('EMPTY_RESPONSE_RESULT',''),'usage':u,'total_cost_usd':.012345,'modelUsage':{'sonnet':{'costBasis':'list'}}}),flush=True)
 sys.exit(1 if len(blocks)>1 else 0)
 """
 
@@ -191,6 +197,97 @@ class Contract(unittest.TestCase):
                 other.chat.completions.create(**self.request())
             self.assertNotIsInstance(raised.exception, directsdk.ClaudeCodeLoggedOut)
             other.close()
+
+    def test_empty_native_completion_logs_shape_without_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            client = self.client(tmp, EMPTY_RESPONSE='1', EMPTY_RESPONSE_RESULT='PRIVATE_PAYLOAD_NOT_FOR_LOG')
+            with self.assertLogs('directsdk', level='WARNING') as captured:
+                response = client.chat.completions.create(**self.request())
+            self.assertIsNone(response.choices[0].message.content)
+            self.assertEqual(response.choices[0].finish_reason, 'stop')
+            diagnostic = '\n'.join(captured.output)
+            self.assertIn('Claude native empty completion', diagnostic)
+            self.assertIn('native_block_types=[]', diagnostic)
+            self.assertIn('accepted_block_types=[]', diagnostic)
+            self.assertIn('output_tokens=0', diagnostic)
+            self.assertIn('tool_count=1', diagnostic)
+            self.assertIn('last_frame_types=', diagnostic)
+            self.assertNotIn('PRIVATE_PAYLOAD_NOT_FOR_LOG', diagnostic)
+            client.close()
+
+    def test_contentless_upstream_refusal_is_visible_and_replayed_as_text(self):
+        import directsdk
+        from unittest.mock import patch
+
+        class RefusalAdmission:
+            details = None
+
+            def __init__(self, _upstream, _timeout, queried=None):
+                self.url = 'http://127.0.0.1:9'
+                self.used, self.status, self.denied = True, 200, 1
+                self.request_id = 'req_test_refusal'
+                message = {
+                    'id': 'msg_test_refusal', 'role': 'assistant', 'content': [],
+                    'stop_reason': 'refusal',
+                    'usage': {'input_tokens': 1, 'output_tokens': 0},
+                }
+                if self.details is not None:
+                    message['stop_details'] = self.details
+                self.capture = SimpleNamespace(complete=True, message=message)
+
+            def abort(self):
+                pass
+
+            def close(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            native_result = 'API Error: 400 HERMES_MODEL_ADMISSION_CONSUMED'
+            text = 'Claude refused this request.'
+            client = self.client(tmp, NATIVE_REFUSAL='1', NATIVE_REFUSAL_RESULT=native_result)
+            with patch.object(directsdk, 'Admission', RefusalAdmission):
+                with self.assertLogs('directsdk', level='WARNING') as captured:
+                    response = client.chat.completions.create(**self.request())
+                self.assertEqual(response.choices[0].message.content, text)
+                self.assertEqual(response.choices[0].finish_reason, 'stop')
+                self.assertIsNone(response.choices[0].message.reasoning_details)
+                self.assertIn('stop_reasons=[\'refusal\']', '\n'.join(captured.output))
+                self.assertIn('blocked_requests=1', '\n'.join(captured.output))
+                self.assertNotIn(native_result, '\n'.join(captured.output))
+                self.assertNotIn(native_result, response.choices[0].message.content)
+
+                history = [self.request()['messages'][0], response.choices[0].message.model_dump(),
+                           {'role': 'user', 'content': 'continue'}]
+                _system, frames = directsdk.prepare_history(history)
+                self.assertEqual(frames[-2]['message']['content'], [{'type': 'text', 'text': text}])
+
+                chunks = list(client.chat.completions.create(**self.request(), stream=True))
+                self.assertEqual(''.join(chunk.choices[0].delta.content or '' for chunk in chunks), text)
+                self.assertIsNone(chunks[-1].choices[0].delta.reasoning_details)
+
+                RefusalAdmission.details = {'category': 'cyber', 'explanation': 'The upstream classifier declined the request.'}
+                explained = client.chat.completions.create(**self.request())
+                self.assertEqual(explained.choices[0].message.content,
+                                 'Claude refused this request: The upstream classifier declined the request.')
+                self.assertNotIn(native_result, explained.choices[0].message.content)
+
+                RefusalAdmission.details = {'category': 'cyber', 'explanation': None}
+                categorized = client.chat.completions.create(**self.request())
+                self.assertEqual(categorized.choices[0].message.content,
+                                 'Claude refused this request (category: cyber).')
+            client.close()
+
+    def test_native_idle_timeout_logs_phase_without_payload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            client = self.client(tmp, HANG='1')
+            with self.assertLogs('directsdk', level='ERROR') as captured:
+                with self.assertRaisesRegex(TimeoutError, 'Claude request timed out'):
+                    client.chat.completions.create(**self.request(), timeout=2)
+            diagnostic = '\n'.join(captured.output)
+            self.assertIn('phase=response', diagnostic)
+            self.assertIn('last_event=', diagnostic)
+            self.assertNotIn('long long', diagnostic)
+            client.close()
 
     def test_fail_closed_and_cancellation(self):
         import directsdk
