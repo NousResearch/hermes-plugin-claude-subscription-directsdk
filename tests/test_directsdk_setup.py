@@ -62,8 +62,8 @@ def test_setup_status_reports_login_and_models_from_the_cli(profile, tmp_path):
     models = profile.discover_models(command=command, env=env)
     ids = [m["id"] for m in models]
     # Native picker rows are deduplicated to their Hermes route ids (opus and opus[1m] both -> opus 1M)
-    assert ids == ["claude-sonnet-5[1m]", "claude-opus-5-5[1m]", "claude-haiku-4-5-20251001"]
-    assert [m["label"] for m in models] == ["Sonnet 5 for long sessions", "Opus 5.5", "Haiku 4.5"]
+    assert ids[:3] == ["claude-sonnet-5[1m]", "claude-opus-5-5[1m]", "claude-haiku-4-5-20251001"]
+    assert [m["label"] for m in models[:3]] == ["Sonnet 5 for long sessions", "Opus 5.5", "Haiku 4.5"]
     assert models[1]["note"] == "usage credits"
     assert models[2]["note"] == ""
     # Discovery goes through the admission relay with zero upstream requests
@@ -76,8 +76,8 @@ def test_every_model_the_cli_advertises_is_selectable(profile, tmp_path):
     pinned = _discover(profile, tmp_path, PINNED_PICKER)
     models = _discover(profile, tmp_path, PINNED_PICKER + UNPINNED_PICKER)
     # Newcomers leave the pinned rows exactly as they were.
-    assert models[:len(pinned)] == pinned
-    fresh = {m["id"]: m for m in models[len(pinned):]}
+    assert [m for m in models if "unpinned" not in m["note"]] == pinned
+    fresh = {m["id"]: m for m in models if "unpinned" in m["note"]}
     # Every advertised model is listed under an id the CLI announced: the plain-only id stays plain,
     # and a plain + [1m] pair collapses onto its [1m] form, as pinned 1M models do.
     assert sorted(fresh) == ["claude-fable-9[1m]", "claude-opus-9[1m]", "claude-sonnet-5-9"]
@@ -87,6 +87,27 @@ def test_every_model_the_cli_advertises_is_selectable(profile, tmp_path):
     assert fresh["claude-opus-9[1m]"]["note"] == "usage credits · unpinned"
     assert fresh["claude-sonnet-5-9"]["note"] == fresh["claude-fable-9[1m]"]["note"] == "unpinned"
     assert all(m["upstream_requests"] == 0 for m in fresh.values())
+
+
+def test_pinned_models_the_picker_omits_stay_selectable(profile, tmp_path):
+    """The live picker names only each family's current model; older pinned models the account
+    still runs (Opus 5, Opus 4.8, Opus 4.6) are appended after the advertised rows, never dropped."""
+    from model_catalog import MODEL_METADATA
+    models = _discover(profile, tmp_path, PINNED_PICKER + UNPINNED_PICKER)
+    ids = [m["id"] for m in models]
+    advertised = [m["id"] for m in _discover(profile, tmp_path, UNPINNED_PICKER) if "unpinned" in m["note"]]
+    # Every pinned route is listed exactly once, whether or not the CLI announced it.
+    assert set(MODEL_METADATA) <= set(ids) and len(ids) == len(set(ids))
+    # Catalog-only rows follow every advertised row, in catalog order.
+    appended = [r for r in MODEL_METADATA if r not in ("claude-sonnet-5[1m]", "claude-opus-5-5[1m]", "claude-haiku-4-5-20251001")]
+    assert ids[-len(appended):] == appended
+    assert set(advertised) <= set(ids[:-len(appended)])
+    rows = {m["id"]: m for m in models}
+    assert rows["claude-opus-4-8[1m]"]["label"] == "Opus 4.8"
+    assert rows["claude-opus-5[1m]"]["label"] == "Opus 5"
+    # Pro bills Fable to usage credits from the first request; the appended row says so too.
+    assert rows["claude-fable-5-1[1m]"]["note"] == "usage credits"
+    assert all(m["upstream_requests"] == 0 for m in models)
 
 
 def test_hermes_never_budgets_a_discovered_row_past_the_native_window(profile, tmp_path):

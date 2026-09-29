@@ -131,4 +131,25 @@ def discover_models(command=None, env=None, timeout=40):
         if "usage credit" in str(row.get("description") or "").lower() or base in credit_billed_on_plan:
             # The billing warning reads first; an unpinned row keeps its marker after it.
             entry["note"] = "usage credits" if pinned else "usage credits · unpinned"
-    return list(routes.values()) or None
+    if not routes:
+        return None
+    # The live picker names only each family's current model, yet the account still runs the older
+    # pinned ones (Opus 5, Opus 4.8, ...). Replacing the static catalog with the picker would hide
+    # them, so every pinned route the CLI did not announce is appended after the advertised rows.
+    for route, meta in MODEL_METADATA.items():
+        if route in routes:
+            continue
+        canonical = meta["canonical_model"]
+        routes[route] = {"id": route, "label": _catalog_label(canonical),
+                         "note": "usage credits" if canonical in credit_billed_on_plan else "",
+                         "upstream_requests": upstream}
+    return list(routes.values())
+
+
+def _catalog_label(model):
+    """``claude-opus-4-8`` -> ``Opus 4.8``; a trailing snapshot date is dropped."""
+    parts = model.removeprefix("claude-").split("-")
+    if parts and len(parts[-1]) == 8 and parts[-1].isdigit():
+        parts = parts[:-1]
+    family, version = parts[0], [p for p in parts[1:] if p.isdigit()]
+    return " ".join(filter(None, [family.capitalize(), ".".join(version)]))
