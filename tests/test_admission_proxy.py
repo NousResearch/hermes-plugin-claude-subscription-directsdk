@@ -30,6 +30,23 @@ def test_proxy_selection_by_no_proxy(host, no_proxy, expected):
         gate.close()
 
 
+def test_no_proxy_port_must_match_upstream_port():
+    mismatch = Admission('https://api.example.com:8443', 1, env={
+        'HTTPS_PROXY': 'http://proxy.test:8080', 'NO_PROXY': 'api.example.com:443',
+    })
+    try:
+        assert mismatch.proxy is not None
+    finally:
+        mismatch.close()
+    match = Admission('https://api.example.com:8443', 1, env={
+        'HTTPS_PROXY': 'http://proxy.test:8080', 'NO_PROXY': 'api.example.com:8443',
+    })
+    try:
+        assert match.proxy is None
+    finally:
+        match.close()
+
+
 def test_proxy_precedence_lowercase_and_unsupported_scheme():
     gate = Admission('https://api.example.com', 1, env={
         'HTTPS_PROXY': 'http://upper.test:3128', 'https_proxy': 'http://lower.test:3128',

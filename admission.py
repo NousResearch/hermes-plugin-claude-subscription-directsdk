@@ -166,17 +166,31 @@ class Admission:
     def _proxy_for(self, host):
         # NO_PROXY supports '*' and comma-separated hosts/domains, optionally with ports.
         no_proxy = self.env.get('NO_PROXY') or self.env.get('no_proxy') or ''
+        target_port = self.upstream.port or (443 if self.upstream.scheme == 'https' else 80)
         for entry in no_proxy.split(','):
             entry = entry.strip().lower()
             if not entry:
                 continue
             if entry == '*':
                 return None
+            entry_port = None
             if entry.startswith('[') and ']' in entry:
-                entry = entry[1:entry.index(']')]
+                close = entry.index(']')
+                suffix = entry[1:close]
+                remainder = entry[close + 1:]
+                if remainder.startswith(':') and remainder[1:].isdigit():
+                    entry_port = int(remainder[1:])
             elif entry.count(':') == 1:
-                entry = entry.rsplit(':', 1)[0]
-            suffix = entry.lstrip('.')
+                name, port = entry.rsplit(':', 1)
+                if port.isdigit():
+                    suffix, entry_port = name, int(port)
+                else:
+                    suffix = entry
+            else:
+                suffix = entry
+            if entry_port is not None and entry_port != target_port:
+                continue
+            suffix = suffix.lstrip('.')
             if host.lower() == suffix or host.lower().endswith('.' + suffix):
                 return None
         # Lowercase variables are common in Unix environments; explicit HTTPS_PROXY wins.
