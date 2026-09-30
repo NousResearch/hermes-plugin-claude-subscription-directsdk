@@ -16,6 +16,10 @@ from urllib.parse import urlsplit
 UNCACHEABLE = ('thinking', 'redacted_thinking')
 
 
+class QueriedTurnMismatch(ValueError):
+    """The native request could not be reconciled with Hermes' tool results."""
+
+
 def _plain(block):
     return {k: v for k, v in block.items() if k != 'cache_control'} if isinstance(block, dict) else block
 
@@ -67,6 +71,62 @@ def pin_message_breakpoint(payload, queried):
         return json.dumps(body, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
     except (ValueError, TypeError, KeyError, AttributeError, IndexError):
         return payload
+
+
+def restore_queried_turn(payload, queried):
+    """Send Hermes' newest user frame, excluding context added by the native CLI.
+
+    The CLI can append an account-email ``system-reminder`` inside a tool result. Hermes did
+    not supply that text, and a model can mistake it for an instruction from the tool. Match
+    the complete queried frame by block identity and original content before replacing it.
+    A tool-result frame that cannot be matched fails closed before the upstream request.
+    """
+    if not isinstance(queried, list) or not queried:
+        return payload
+    strict = any(isinstance(block, dict) and block.get('type') == 'tool_result' for block in queried)
+
+    def unmatched():
+        if strict:
+            raise QueriedTurnMismatch('Native request does not uniquely match Hermes tool results')
+        return payload
+
+    try:
+        body = json.loads(payload)
+        messages = body['messages']
+        last_assistant = max((i for i, m in enumerate(messages) if m.get('role') == 'assistant'), default=-1)
+        newest = messages[last_assistant + 1] if last_assistant + 1 < len(messages) else {}
+        native = newest.get('content') if newest.get('role') == 'user' else None
+        if not isinstance(native, list) or len(native) < len(queried):
+            return unmatched()
+
+        def matches(sent, host):
+            if not isinstance(sent, dict) or not isinstance(host, dict):
+                return sent == host
+            left, right = _plain(sent), _plain(host)
+            sent_content, host_content = left.pop('content', None), right.pop('content', None)
+            return left == right and (sent_content == host_content or
+                                      (isinstance(sent_content, str) and isinstance(host_content, str)
+                                       and sent_content.startswith(host_content)))
+
+        starts = [i for i in range(len(native) - len(queried) + 1)
+                  if all(matches(native[i + j], host) for j, host in enumerate(queried))]
+        if len(starts) != 1:
+            return unmatched()
+        start = starts[0]
+        restored = []
+        for sent, host in zip(native[start:start + len(queried)], queried):
+            block = copy.deepcopy(host)
+            if isinstance(block, dict) and isinstance(sent, dict) and 'cache_control' in sent:
+                block['cache_control'] = sent['cache_control']
+            restored.append(block)
+        if native == restored:
+            return payload
+        newest['content'] = restored
+        return json.dumps(body, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+    except QueriedTurnMismatch:
+        raise
+    except (ValueError, TypeError, KeyError, AttributeError, IndexError):
+        return unmatched()
 
 
 class Capture:
@@ -212,6 +272,7 @@ class Handler(BaseHTTPRequestHandler):
             self.connection.settimeout(gate.timeout)
             payload = self.rfile.read(int(self.headers['Content-Length']))
             payload = pin_message_breakpoint(payload, gate.queried)
+            payload = restore_queried_turn(payload, gate.queried)
             target = gate.upstream
             if target.scheme == 'https':
                 conn = http.client.HTTPSConnection(target.hostname, target.port, timeout=gate.timeout, context=ssl.create_default_context())
@@ -249,7 +310,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(chunk)
                 self.wfile.flush()
         except (OSError, http.client.HTTPException, ValueError, KeyError, IndexError, TypeError) as exc:
-            gate.failure = type(exc).__name__
+            gate.failure = str(exc) if isinstance(exc, QueriedTurnMismatch) else type(exc).__name__
         finally:
             with gate.lock:
                 gate.sockets.discard(self.connection)
