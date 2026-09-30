@@ -1,6 +1,7 @@
 """Pinned native routes; a loopback gateway needs explicit long-context selection."""
 CONTEXT_WINDOWS = {
     'claude-sonnet-5': 1_000_000,
+    'claude-sonnet-5-5': 1_000_000,
     'claude-haiku-4-5-20251001': 200_000,
     'claude-opus-5-5': 1_000_000,
     'claude-opus-5': 1_000_000,
