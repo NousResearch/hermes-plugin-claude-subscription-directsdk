@@ -164,10 +164,17 @@ def normalize_input_schema(schema):
 
 def request_body(kwargs):
     allowed = {'model', 'messages', 'tools', 'stream', 'stream_options', 'max_tokens', 'max_completion_tokens',
-               'temperature', 'top_p', 'stop', 'extra_body', 'timeout', 'tool_choice', 'parallel_tool_calls', 'n', 'response_format'}
+               'temperature', 'top_p', 'stop', 'extra_body', 'extra_headers', 'timeout', 'tool_choice', 'parallel_tool_calls', 'n', 'response_format'}
     unknown = set(kwargs) - allowed
     if unknown:
         raise ValueError('Unsupported request parameters: ' + ', '.join(sorted(unknown)))
+    # Hermes Relay attaches host tracing to chat-completions clients. Keep it host-local:
+    # never project it into generation fields or override the official CLI's identity.
+    headers = kwargs.get('extra_headers')
+    if headers is not None and (not isinstance(headers, dict) or any(
+            not isinstance(key, str) or key.lower() != 'traceparent' or not isinstance(value, str)
+            for key, value in headers.items())):
+        raise ValueError('extra_headers supports host traceparent metadata only')
     if kwargs.get('n', 1) != 1 or kwargs.get('tool_choice', 'auto') not in ('auto', None):
         raise ValueError('Only n=1 and tool_choice=auto are supported')
     if kwargs.get('parallel_tool_calls') is False:
