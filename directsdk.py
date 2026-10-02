@@ -646,10 +646,13 @@ class Client:
                 calls = []
                 for block in blocks:
                     if block.get('type') == 'tool_use':
+                        # A name outside the inventory (a hallucinated or deferred tool) goes to Hermes as is: its
+                        # turn validation answers that call with an error the model corrects. Raising here instead
+                        # failed the whole turn after three retries, reported as an unavailable provider.
                         name = block['name']
-                        if not name.startswith(PREFIX) or name[len(PREFIX):] not in names:
-                            raise RuntimeError('Native returned a tool outside the current host inventory')
-                        calls.append({'id': block['id'], 'type': 'function', 'function': {'name': name[len(PREFIX):], 'arguments': json.dumps(block['input'], separators=(',', ':'), allow_nan=False)}})
+                        if name.startswith(PREFIX):
+                            name = name[len(PREFIX):]
+                        calls.append({'id': block['id'], 'type': 'function', 'function': {'name': name, 'arguments': json.dumps(block['input'], separators=(',', ':'), allow_nan=False)}})
                 boundary = bool(calls) and final.get('subtype') == 'error_max_turns' and p.returncode == 1
                 if not boundary and not native_failure_handled and (p.returncode != 0 or final.get('is_error') or final.get('subtype') != 'success'):
                     raise RuntimeError('Native request failed: ' + str(final.get('subtype')))

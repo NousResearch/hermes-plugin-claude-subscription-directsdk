@@ -44,7 +44,7 @@ assert sys.argv[sys.argv.index('--permission-mode')+1]=='dontAsk'
 assert sys.argv[sys.argv.index('--tools')+1]==''
 assert rows[-1]['type']=='user'
 assert 'metadata' not in wire
-blocks=[{'type':'thinking','thinking':'private','signature':'signed-test'}, {'type':'text','text':'hello\n'}, {'type':'tool_use','id':'toolu_test','name':'mcp__hermes__probe','input':{'value':'x'}}]
+blocks=[{'type':'thinking','thinking':'private','signature':'signed-test'}, {'type':'text','text':'hello\n'}, {'type':'tool_use','id':'toolu_test','name':os.environ.get('TOOL_NAME','mcp__hermes__probe'),'input':{'value':'x'}}]
 if len(rows)>1:
  if rows[1]['message']['content'][0]['type']=='thinking':
   assert rows[1]['message']['content']==blocks
@@ -170,6 +170,20 @@ class Contract(unittest.TestCase):
                 msg["content"] = "middleware changed"
                 self.assertEqual(client.chat.completions.create(**req).choices[0].message.content, "done")
             client.close()
+
+    def test_tool_outside_the_inventory_reaches_the_host(self):
+        # Hermes errors an unknown tool call back to the model; the transport must not fail the turn.
+        with tempfile.TemporaryDirectory() as tmp:
+            for native_name, host_name in (("mcp__hermes__ghost", "ghost"), ("mcp__other__ghost", "mcp__other__ghost")):
+                client = self.client(tmp, TOOL_NAME=native_name)
+                for streaming in (False, True):
+                    result = client.chat.completions.create(**self.request(), stream=streaming)
+                    if streaming:
+                        calls = [tc for c in result if c.choices for tc in (c.choices[0].delta.tool_calls or [])]
+                    else:
+                        calls = result.choices[0].message.tool_calls
+                    self.assertEqual([c.function.name for c in calls], [host_name])
+                client.close()
 
     def test_logged_out_native_raises_the_login_hint(self):
         import directsdk
