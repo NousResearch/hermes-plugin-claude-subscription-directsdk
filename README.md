@@ -9,6 +9,7 @@ Standalone Hermes Agent model-provider plugin: `claude-subscription-directsdk-ex
 - Hermes Agent 0.21.4 or newer, or `main` at/after `118984d7a02f` (hermes-agent PR #117451, the core half of #105863). On an older Hermes the plugin fails to load with a clear `Failed to load user provider plugin` warning rather than half-working.
 - Python 3.10+ on Linux, macOS or Windows. Native runs in its own process group (POSIX session / Windows `CREATE_NEW_PROCESS_GROUP`) and cancellation kills the whole tree (`killpg` / `taskkill /T`), so the `node` child behind the npm `claude.cmd` shim never outlives a cancelled request. The suite runs on all three in CI.
 - **The official Claude Code CLI, installed and logged in.** This plugin has no credentials of its own; everything goes through `claude`.
+- **Claude Code 2.1.284 or newer for Sonnet 5.5.** A route reaches the picker only when the installed CLI announces it in the `initialize` handshake, so a model newer than your `claude` binary cannot be discovered however this catalog is pinned — upgrade the CLI first, then the pins supply its window. `claude-sonnet-5-5` landed in [2.1.284](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md).
 
 The plugin checks for `claude` at every seam and never guesses:
 
