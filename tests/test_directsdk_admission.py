@@ -150,6 +150,32 @@ def test_incomplete_upstream_error_names_the_first_attempt(tmp_path):
         client.close(); peer.shutdown(); thread.join(); peer.server_close()
 
 
+@pytest.mark.parametrize('status', [429, 401, 400, 500, 529, 200])
+def test_incomplete_upstream_error_carries_the_first_status(tmp_path, status):
+    """Hermes routes on status_code: the first attempt's real HTTP status, none for a 200 cut short."""
+    class Peer(BaseHTTPRequestHandler):
+        def log_message(self, *args): pass
+        def do_POST(self):
+            self.rfile.read(int(self.headers['Content-Length']))
+            if status == 200:
+                # Headers and message_start, then the connection drops: no complete capture.
+                self.send_response(200); self.send_header('Content-Type','text/event-stream'); self.end_headers()
+                self.wfile.write(b'data: {"type":"message_start","message":{"id":"cut","role":"assistant","content":[]}}\n\n')
+                return
+            body=b'{"type":"error","error":{"type":"api_error","message":"fixture"}}'
+            self.send_response(status); self.send_header('Content-Type','application/json'); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)
+    peer=ThreadingHTTPServer(('127.0.0.1',0),Peer)
+    thread=threading.Thread(target=peer.serve_forever,daemon=True); thread.start()
+    native=tmp_path/'native.py'; native.write_text(NATIVE)
+    client=directsdk.Client(command=[sys.executable,str(native)],env={'PATH':os.defpath,'HOME':str(tmp_path),'ANTHROPIC_BASE_URL':f'http://127.0.0.1:{peer.server_port}'})
+    try:
+        with pytest.raises(RuntimeError, match=rf'^Incomplete upstream response \(first upstream attempt: status {status}, capture incomplete') as raised:
+            client.create(model='sonnet',messages=[{'role':'user','content':'fixture'}])
+        assert raised.value.status_code == (None if status == 200 else status)
+    finally:
+        client.close(); peer.shutdown(); thread.join(); peer.server_close()
+
+
 def test_invalid_stream_json_error_names_the_offending_line(tmp_path):
     """A native that prints a non-JSON stdout line (a shim banner) fails with that line in the error, not a bare label."""
     native=tmp_path/'native.py'; native.write_text("import sys\nprint('mise WARN tool not activated')\nsys.exit(0)\n")

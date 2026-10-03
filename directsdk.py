@@ -32,12 +32,33 @@ except ImportError:
     from directsdk_setup import INSTALL_HINT, LOGGED_OUT_HINT, _resolve as resolve_claude
 
 
+# Hermes picks retry vs fallback from an error's status_code (main loop and auxiliary ladder alike).
 class ClaudeCodeMissing(RuntimeError):
     """The official Claude Code CLI this transport drives is not installed (or not on PATH)."""
+    status_code = 503
 
 
 class ClaudeCodeLoggedOut(RuntimeError):
     """Claude Code refused before any upstream request because it has no usable login where Hermes runs it."""
+    status_code = 401
+
+
+class ClaudeAPIError(RuntimeError):
+    """A failed upstream or native-answered request; status_code is None when there is no HTTP equivalent."""
+
+    def __init__(self, message, status_code=None):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+# Native's own error codes for errors it answers without a relayed upstream status.
+NATIVE_ERROR_STATUS = {
+    'rate_limit': 429,  # plan/session limit ("You've hit your session limit")
+    'billing_error': 402,
+    'authentication_failed': 401,
+    'overloaded': 529,
+    'server_error': 503,  # native's code for capacity, 5xx and OAuth-refresh races: transient
+}
 
 
 CARRIER = 'claude-subscription-directsdk-experimental.native_assistant'
@@ -688,7 +709,9 @@ class Client:
                         first = f'first upstream attempt: status {admission.status}, capture ' + ('complete' if admission.capture.complete else 'incomplete') + (f', relay failure {admission.failure}' if admission.failure else '') + f', native retries denied: {admission.denied}'
                         if admission.error_text():
                             first += ', upstream said: ' + admission.error_text()[:500]
-                        raise RuntimeError(f'Incomplete upstream response ({first})' + (': ' + native_error if native_error else ''))
+                        # The first attempt's real HTTP status; a 200 cut short or a relay failure has none.
+                        status = admission.status if isinstance(admission.status, int) and admission.status >= 400 else None
+                        raise ClaudeAPIError(f'Incomplete upstream response ({first})' + (': ' + native_error if native_error else ''), status)
                     assistants = [admission.capture.message]
                     stopped = True
                 native_failure_handled = admission.denied or (admission.used and assistants[0].get('stop_reason') == 'refusal')
@@ -696,7 +719,7 @@ class Client:
                     if native_error_code == 'authentication_failed' and not admission.used:
                         # No usable login where Hermes runs native: it refuses before any upstream request; only its /api/hello pre-flight reaches the relay.
                         raise ClaudeCodeLoggedOut(f'{LOGGED_OUT_HINT} (native: {native_error})')
-                    raise RuntimeError('Native API error: ' + native_error)
+                    raise ClaudeAPIError('Native API error: ' + native_error, NATIVE_ERROR_STATUS.get(str(native_error_code)))
                 if len(results) != 1 or not assistants or not stopped:
                     raise RuntimeError('Incomplete native response: assistant, message_stop and one result required')
                 final = results[0]

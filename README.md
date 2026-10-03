@@ -115,6 +115,16 @@ Supported translation includes text, base64/native images and documents, canonic
 
 Unknown parameters fail explicitly. Hermes Relay's `extra_headers.traceparent` is accepted as host-local tracing metadata and discarded before native request translation; it is never sent to Claude Code or the upstream. Empty/null header containers also work. Any other header or invalid container is rejected, so authorization and native identity remain CLI-owned. Unsupported surfaces include assistant prefill, strict function mode, forced tool choice, `parallel_tool_calls=False`, `n>1`, JSON-object-only mode, arbitrary headers/body fields, remote image downloads, and cross-model signed-history parity. The read-idle timeout defaults to 180 seconds, resets on native output, and accepts Hermes' finite HTTPX read-timeout shape. Large prompts remain subject to native/OS limits.
 
+Hermes chooses retry or fallback from an error's `status_code`, so failures carry one. An upstream rejection carries the first attempt's real HTTP status. An error native answers itself carries the status for native's own error code: `rate_limit` 429 (a plan or session limit), `billing_error` 402, `authentication_failed` and a missing login 401, `overloaded` 529, `server_error` 503; a missing Claude Code CLI is 503. Local request validation stays `ValueError`; malformed native output and other process failures carry no status. Hermes' non-streaming stale-call watchdog stops a hung call through `cancel()`; the provider profile classifies that kill as a timeout rather than an unknown error.
+
+In the agent loop Hermes passes its own request timeout as that read-idle limit (`providers.<provider>.request_timeout_seconds`, 1800 seconds by default as of Hermes 0.21.5). Hermes treats `process://` as a local endpoint, so its non-streaming stale-call watchdog is off for a model id without a Hermes reasoning stale floor (as of 0.21.5, for example `claude-sonnet-5[1m]` and the Haiku ids) unless a stale timeout is configured. A native call that hangs without output then holds the turn for the whole read-idle limit before Hermes retries or falls back. To bound it, configure the stale timeout; on this non-streaming path it limits the whole call, not a silence, so choose a value above your longest healthy turn:
+
+```yaml
+providers:
+  claude-subscription-directsdk-experimental:
+    stale_timeout_seconds: 900
+```
+
 ## Setup: `hermes model` → Claude Subscription DirectSDK (Experimental)
 
 Selecting the provider asks the Claude CLI itself, never Anthropic, before anything is saved:

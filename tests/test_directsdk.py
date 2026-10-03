@@ -231,12 +231,14 @@ class Contract(unittest.TestCase):
                         list(result)
                 self.assertIn(LOGGED_OUT_HINT, str(raised.exception))
                 self.assertIn("Not logged in", str(raised.exception))
+                self.assertEqual(raised.exception.status_code, 401)
             client.close()
             # Any other error native answers itself keeps its own text.
             other = self.client(tmp, NATIVE_ERROR="unknown:API Error: something else")
             with self.assertRaisesRegex(RuntimeError, "^Native API error: API Error: something else$") as raised:
                 other.chat.completions.create(**self.request())
             self.assertNotIsInstance(raised.exception, directsdk.ClaudeCodeLoggedOut)
+            self.assertIsNone(raised.exception.status_code)
             other.close()
 
     def test_fail_closed_and_cancellation(self):

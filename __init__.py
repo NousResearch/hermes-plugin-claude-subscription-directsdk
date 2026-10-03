@@ -78,6 +78,15 @@ class ClaudeOAuthDirectSDKProfile(ProviderProfile):
         return ({'reasoning': dict(reasoning_config)} if reasoning_config else {}), {}
 
 
+def classify_api_error(error, **_):
+    # Hermes' stale-call watchdog stops a hung call through Client.cancel(), so its kill comes back as our cancel
+    # error, which Hermes would retry as unknown: classify it as the timeout it is. A user interrupt never arrives
+    # as this error; Hermes marks its request cancelled first, drops ours and raises InterruptedError.
+    if isinstance(error, RuntimeError) and str(error) == 'Claude request cancelled':
+        return {'reason': 'timeout'}
+    return None
+
+
 profile = ClaudeOAuthDirectSDKProfile(
     name='claude-subscription-directsdk-experimental',
     display_name='Claude Subscription DirectSDK (Experimental)',
@@ -94,6 +103,8 @@ profile = ClaudeOAuthDirectSDKProfile(
     default_aux_model='claude-sonnet-5[1m]',
     fallback_models=tuple(MODEL_METADATA),
     model_aliases={alias: native_model(alias) for alias in ALIASES},
+    # A dataclass field (Hermes >= 0.21.4), so a method on the subclass would be shadowed by its None default.
+    classify_api_error=classify_api_error,
 )
 register_provider(profile)
 
