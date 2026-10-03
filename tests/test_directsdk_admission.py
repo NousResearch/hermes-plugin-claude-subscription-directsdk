@@ -11,7 +11,9 @@ import threading
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'evals'))
 import directsdk
+from directsdk_admission import upstream_closed
 
 NATIVE = r'''
 import json, os, sys, urllib.request, urllib.error
@@ -102,15 +104,19 @@ def test_empty_tool_input_completes_the_capture(tmp_path):
         client.close(); peer.shutdown(); thread.join(); peer.server_close()
 
 
-def test_cancel_closes_the_active_upstream_socket(tmp_path):
+def test_cancel_closes_the_active_upstream_socket(tmp_path, monkeypatch):
     entered, disconnected = threading.Event(), threading.Event()
     class Peer(BaseHTTPRequestHandler):
         def log_message(self, *args): pass
         def do_POST(self):
             self.rfile.read(int(self.headers['Content-Length']))
             entered.set()
-            self.rfile.read(1)
-            disconnected.set()
+            self.close_connection = True
+            if upstream_closed(self.rfile):
+                disconnected.set()
+    spawned = []
+    spawn = directsdk.Request.spawn
+    monkeypatch.setattr(directsdk.Request, 'spawn', lambda self, *a, **k: spawned.append(spawn(self, *a, **k)) or spawned[-1])
     peer = ThreadingHTTPServer(('127.0.0.1', 0), Peer)
     thread = threading.Thread(target=peer.serve_forever, daemon=True)
     thread.start()
@@ -127,8 +133,57 @@ def test_cancel_closes_the_active_upstream_socket(tmp_path):
             with pytest.raises(RuntimeError, match='cancelled'):
                 result.result(timeout=3)
             assert disconnected.wait(2)
+            assert spawned and all(process.wait(timeout=5) is not None for process in spawned)
     finally:
         client.close(); peer.shutdown(); thread.join(); peer.server_close()
+
+
+class _Read:
+    def __init__(self, outcome): self.outcome = outcome
+    def read(self, size):
+        if isinstance(self.outcome, BaseException):
+            raise self.outcome
+        return self.outcome
+
+
+@pytest.mark.parametrize('outcome', [
+    b'',
+    ConnectionResetError(10054, 'An existing connection was forcibly closed by the remote host'),
+    ConnectionAbortedError(10053, 'An established connection was aborted by the software in your host machine'),
+], ids=['eof', 'winerror-10054', 'winerror-10053'])
+def test_upstream_closed_counts_eof_reset_and_abort_as_closed(outcome):
+    # Windows often reports the relay's teardown as 10054/10053 rather than EOF; both are a closed socket.
+    assert upstream_closed(_Read(outcome)) is True
+
+
+def test_upstream_closed_does_not_swallow_unrelated_errors():
+    with pytest.raises(TimeoutError):
+        upstream_closed(_Read(TimeoutError('timed out')))
+    with pytest.raises(OSError):
+        upstream_closed(_Read(OSError(22, 'invalid argument')))
+
+
+def test_upstream_closed_sees_a_real_reset():
+    import socket, struct
+    left, right = socket.socketpair()
+    with left, right:
+        left.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))  # close() sends RST
+        left.close()
+        with right.makefile('rb') as rfile:
+            assert upstream_closed(rfile) is True
+
+
+def test_upstream_closed_never_passes_a_socket_that_is_still_open():
+    import socket
+    left, right = socket.socketpair()
+    with left, right, right.makefile('rb') as rfile:
+        verdict, done = [], threading.Event()
+        watcher = threading.Thread(target=lambda: (verdict.append(upstream_closed(rfile)), done.set()), daemon=True)
+        watcher.start()
+        assert not done.wait(0.5)  # Open and silent: never reported closed.
+        left.sendall(b'x')
+        assert done.wait(5) and verdict == [False]  # Open and talking: not closed either.
+        watcher.join(5)
 
 
 def test_incomplete_upstream_error_names_the_first_attempt(tmp_path):

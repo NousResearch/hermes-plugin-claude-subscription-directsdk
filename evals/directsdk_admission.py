@@ -48,6 +48,18 @@ def events(mode):
         yield {'type':'message_stop'}
 
 
+def upstream_closed(rfile):
+    """Block until the relay ends this upstream connection; True once it has.
+
+    Windows often delivers the relay's teardown as a reset (WinError 10054) or an abort
+    (WinError 10053) instead of a clean EOF. Both mean the connection is gone. Any other
+    error propagates, and a byte of data means the connection is still open."""
+    try:
+        return rfile.read(1) == b''
+    except (ConnectionResetError, ConnectionAbortedError):
+        return True
+
+
 class Peer(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -66,8 +78,9 @@ class Peer(BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'text/event-stream')
         self.end_headers()
         if self.server.mode == 'cancel':
-            self.rfile.read(1)  # Cancellation must close this real upstream connection.
-            self.server.disconnected.set()
+            self.close_connection = True
+            if upstream_closed(self.rfile):  # Cancellation must close this real upstream connection.
+                self.server.disconnected.set()
             return
         payload = ''.join('event: '+e['type']+'\ndata: '+json.dumps(e, ensure_ascii=False)+'\n\n' for e in events(self.server.mode)).encode()
         self.wfile.write(payload)
