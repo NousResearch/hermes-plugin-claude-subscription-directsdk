@@ -74,21 +74,95 @@ def pin_message_breakpoint(payload, queried):
 
 
 def restore_queried_turn(payload, queried):
-    """Send Hermes' newest user frame, excluding context added by the native CLI.
+    """Restore a uniquely anchored tool-result frame without dropping protected content.
 
-    The CLI can append an account-email ``system-reminder`` inside a tool result. Hermes did
-    not supply that text, and a model can mistake it for an instruction from the tool. Match
-    the complete queried frame by block identity and original content before replacing it.
-    A tool-result frame that cannot be matched fails closed before the upstream request.
+    Only trailing bare text is removable. Split/joined text runs are equivalent
+    for matching, but never across media, metadata or cache directives. Restore
+    the host's original representation and retain unambiguously mapped markers.
     """
     if not isinstance(queried, list) or not queried:
         return payload
     strict = any(isinstance(block, dict) and block.get('type') == 'tool_result' for block in queried)
+    # An ordinary user-only frame is outside restoration scope, byte for byte.
+    if not strict:
+        return payload
 
     def unmatched():
-        if strict:
-            raise QueriedTurnMismatch('Native request does not uniquely match Hermes tool results')
-        return payload
+        raise QueriedTurnMismatch('Native request does not uniquely match Hermes tool results')
+
+    def bare_text(block):
+        return (isinstance(block, dict) and set(block) == {'type', 'text'}
+                and block['type'] == 'text' and isinstance(block['text'], str))
+
+    def restore_content(sent, host):
+        # Scalar/list equivalence is allowed only for text with no metadata or markers.
+        if isinstance(host, str) or isinstance(sent, str):
+            def text(value):
+                if isinstance(value, str):
+                    return value
+                if isinstance(value, list) and all(bare_text(b) for b in value):
+                    return ''.join(b['text'] for b in value)
+                return None
+            left, right = text(sent), text(host)
+            if left is None or right is None or not left.startswith(right):
+                return unmatched()
+            return copy.deepcopy(host)
+        if isinstance(sent, list) and isinstance(host, list):
+            return restore_sequence(sent, host)
+        if sent != host:
+            return unmatched()
+        return copy.deepcopy(host)
+
+    def restore_block(sent, host):
+        if not isinstance(sent, dict) or not isinstance(host, dict):
+            return unmatched()
+        restored = copy.deepcopy(host)
+        if host.get('type') == 'tool_result':
+            left_error, right_error = sent.get('is_error', False), host.get('is_error', False)
+            # Missing means false; numeric 0 is not a protocol boolean.
+            if type(left_error) is not bool or type(right_error) is not bool or left_error != right_error:
+                return unmatched()
+            ignored = {'content', 'is_error', 'cache_control'}
+            if {k: v for k, v in sent.items() if k not in ignored} != {k: v for k, v in host.items() if k not in ignored}:
+                return unmatched()
+            if ('content' in sent) != ('content' in host):
+                return unmatched()
+            if 'content' in host:
+                restored['content'] = restore_content(sent['content'], host['content'])
+        elif _plain(sent) != _plain(host):
+            return unmatched()
+        if 'cache_control' in sent:
+            if 'cache_control' in host and sent['cache_control'] != host['cache_control']:
+                return unmatched()
+            restored['cache_control'] = copy.deepcopy(sent['cache_control'])
+        return restored
+
+    def restore_sequence(sent, host):
+        restored = []
+        i = j = 0
+        while i < len(host):
+            if j >= len(sent):
+                return unmatched()
+            if bare_text(host[i]) and bare_text(sent[j]):
+                host_end, sent_end = i + 1, j + 1
+                while host_end < len(host) and bare_text(host[host_end]):
+                    host_end += 1
+                while sent_end < len(sent) and bare_text(sent[sent_end]):
+                    sent_end += 1
+                original = ''.join(b['text'] for b in host[i:host_end])
+                actual = ''.join(b['text'] for b in sent[j:sent_end])
+                # Extensions before a protected host block are insertions, not suffixes.
+                if not (actual.startswith(original) if host_end == len(host) else actual == original):
+                    return unmatched()
+                restored.extend(copy.deepcopy(host[i:host_end]))
+                i, j = host_end, sent_end
+            else:
+                restored.append(restore_block(sent[j], host[i]))
+                i += 1
+                j += 1
+        if any(not bare_text(b) for b in sent[j:]):
+            return unmatched()
+        return restored
 
     try:
         body = json.loads(payload)
@@ -96,29 +170,20 @@ def restore_queried_turn(payload, queried):
         last_assistant = max((i for i, m in enumerate(messages) if m.get('role') == 'assistant'), default=-1)
         newest = messages[last_assistant + 1] if last_assistant + 1 < len(messages) else {}
         native = newest.get('content') if newest.get('role') == 'user' else None
-        if not isinstance(native, list) or len(native) < len(queried):
+        if not isinstance(native, list):
             return unmatched()
 
-        def matches(sent, host):
-            if not isinstance(sent, dict) or not isinstance(host, dict):
-                return sent == host
-            left, right = _plain(sent), _plain(host)
-            sent_content, host_content = left.pop('content', None), right.pop('content', None)
-            return left == right and (sent_content == host_content or
-                                      (isinstance(sent_content, str) and isinstance(host_content, str)
-                                       and sent_content.startswith(host_content)))
-
-        starts = [i for i in range(len(native) - len(queried) + 1)
-                  if all(matches(native[i + j], host) for j, host in enumerate(queried))]
-        if len(starts) != 1:
+        result_ids = [block.get('tool_use_id') for block in queried
+                      if isinstance(block, dict) and block.get('type') == 'tool_result']
+        if any(not isinstance(result_id, str) or not result_id for result_id in result_ids) or len(set(result_ids)) != len(result_ids):
             return unmatched()
-        start = starts[0]
-        restored = []
-        for sent, host in zip(native[start:start + len(queried)], queried):
-            block = copy.deepcopy(host)
-            if isinstance(block, dict) and isinstance(sent, dict) and 'cache_control' in sent:
-                block['cache_control'] = sent['cache_control']
-            restored.append(block)
+
+        native_ids = [b.get('tool_use_id') for b in native if isinstance(b, dict) and b.get('type') == 'tool_result']
+        # Unique ordered result IDs anchor the complete frame; no substring search or
+        # reminder-pattern stripping can accidentally choose another host span.
+        if result_ids != native_ids:
+            return unmatched()
+        restored = restore_sequence(native, queried)
         if native == restored:
             return payload
         newest['content'] = restored
@@ -271,8 +336,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.connection.settimeout(gate.timeout)
             payload = self.rfile.read(int(self.headers['Content-Length']))
-            payload = pin_message_breakpoint(payload, gate.queried)
             payload = restore_queried_turn(payload, gate.queried)
+            payload = pin_message_breakpoint(payload, gate.queried)
             target = gate.upstream
             if target.scheme == 'https':
                 conn = http.client.HTTPSConnection(target.hostname, target.port, timeout=gate.timeout, context=ssl.create_default_context())
