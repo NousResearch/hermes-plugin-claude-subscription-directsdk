@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
 import copy
 import json
 import math
@@ -429,6 +430,36 @@ def shared_workdir():
     return str(path)
 
 
+_process_cwd = None
+_process_cwd_lock = threading.Lock()
+
+
+def process_workdir():
+    """One private cwd for every client in this process when the shared one is refused.
+
+    Hermes builds new clients for new chats, auxiliary calls and background review; a cwd per client
+    moved message 1 for each of them, so none could reuse the conversation's cached prefix. The
+    directory is as private as a per-client one (our mkdtemp, checked on every use); it only lives as
+    long as the process. Recreated at the same path after a prune, never adopted when someone else
+    recreated it.
+    """
+    global _process_cwd
+    with _process_cwd_lock:
+        if _process_cwd is not None:
+            # A predictable path in a shared tempdir: never adopt one someone else recreated.
+            try:
+                _create_private(_process_cwd)
+                ours = _private_dir(_process_cwd)
+            except OSError:
+                ours = False
+            if ours:
+                os.utime(_process_cwd)
+                return _process_cwd
+        _process_cwd = _tighten(tempfile.mkdtemp(prefix='claude-directsdk-cwd-'))
+        atexit.register(shutil.rmtree, _process_cwd, ignore_errors=True)
+        return _process_cwd
+
+
 class Client:
     HERMES_SKIP_TRANSPORT_WRAP = True
     HERMES_SKIP_ASYNC_WRAP = True
@@ -443,7 +474,6 @@ class Client:
         self.command = ([command] if isinstance(command, str) else list(command)) + list(args or [])
         self.timeout = timeout if isinstance(timeout, (int, float)) else 180
         self._lock, self._requests, self._closed = threading.Lock(), set(), False
-        self._owned_cwd = None
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
 
     def cancel(self):
@@ -463,28 +493,10 @@ class Client:
                 stream.close()
             else:
                 request.cancel()
-        if self._owned_cwd is not None:
-            shutil.rmtree(self._owned_cwd, ignore_errors=True)
 
     def _workdir(self):
-        """The shared cwd, else one private cwd per client, recreated at the same path after a prune."""
-        shared = shared_workdir()
-        if shared is not None:
-            return shared
-        with self._lock:
-            if self._owned_cwd is None:
-                self._owned_cwd = _tighten(tempfile.mkdtemp(prefix='claude-directsdk-cwd-'))
-            else:
-                # A predictable path in a shared tempdir: never adopt one someone else recreated.
-                try:
-                    _create_private(self._owned_cwd)
-                    ours = _private_dir(self._owned_cwd)
-                except OSError:
-                    ours = False
-                if not ours:
-                    self._owned_cwd = _tighten(tempfile.mkdtemp(prefix='claude-directsdk-cwd-'))
-                os.utime(self._owned_cwd)
-            return self._owned_cwd
+        """The shared cwd, else the one private cwd of this process."""
+        return shared_workdir() or process_workdir()
 
     def create(self, **kwargs):
         # Hermes' auxiliary seam returns this same object and awaits create.
