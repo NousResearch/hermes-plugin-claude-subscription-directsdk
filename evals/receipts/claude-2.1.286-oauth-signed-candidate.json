@@ -1,0 +1,253 @@
+{
+  "acceptance_passed": false,
+  "admission_statuses": [
+    200,
+    200,
+    200
+  ],
+  "api_provider": "firstParty",
+  "auth_logged_in": true,
+  "auth_method": "claude.ai",
+  "binary_sha256": "fe503f65c6289d59c23e5b21ae44f03583f997dd33a2cbfc75ab4f96fb8fc73f",
+  "binary_version": "2.1.286 (Claude Code)",
+  "blocked_request_count": 0,
+  "cache_scope_note": "Run nonce limits prefix reuse; no globally-cold cache claim.",
+  "client_recreated": true,
+  "completed": true,
+  "continuity_boundaries": [
+    "initial",
+    "tool_continuation",
+    "tool_continuation_after_recreation"
+  ],
+  "effective_efforts": [
+    "high",
+    "high",
+    "high"
+  ],
+  "effective_thinking_modes": [
+    "adaptive",
+    "adaptive",
+    "adaptive"
+  ],
+  "finish_reasons": [
+    "tool_calls",
+    "tool_calls",
+    "stop"
+  ],
+  "initial_projection_diagnostic": {
+    "diagnostic_only_not_prefix_acceptance": true,
+    "email_like_text_present_after": false,
+    "email_like_text_present_before": true,
+    "public_query_present_after": true,
+    "public_query_present_before": true,
+    "same_text_after_plain_shape_projection": false
+  },
+  "label": "candidate",
+  "marker_locations": [
+    [
+      "$.system[1]",
+      "$.system[2]",
+      "$.messages[1].content[0]"
+    ],
+    [
+      "$.system[1]",
+      "$.system[2]",
+      "$.messages[3].content[1]"
+    ],
+    [
+      "$.system[1]",
+      "$.system[2]",
+      "$.messages[5].content[1]"
+    ]
+  ],
+  "marker_settings": [
+    [
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      }
+    ],
+    [
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      }
+    ],
+    [
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      }
+    ]
+  ],
+  "marker_settings_identical": [
+    true,
+    true
+  ],
+  "max_output_tokens": 4000,
+  "model": "claude-sonnet-5",
+  "native_usage_by_call": [
+    {
+      "cache_creation_input_tokens": 6628,
+      "cache_read_input_tokens": 0,
+      "input_tokens": 2,
+      "output_tokens": 172
+    },
+    {
+      "cache_creation_input_tokens": 868,
+      "cache_read_input_tokens": 5880,
+      "input_tokens": 33,
+      "output_tokens": 149
+    },
+    {
+      "cache_creation_input_tokens": 301,
+      "cache_read_input_tokens": 6748,
+      "input_tokens": 33,
+      "output_tokens": 90
+    }
+  ],
+  "native_usage_totals": {
+    "cache_creation_input_tokens": 7797,
+    "cache_read_input_tokens": 12628,
+    "input_tokens": 68,
+    "output_tokens": 411
+  },
+  "path_differences": [
+    [
+      {
+        "change": "list_length",
+        "path": "$.messages[0].content"
+      },
+      {
+        "change": "value",
+        "path": "$.messages[0].content[0].text"
+      },
+      {
+        "after_type": "str",
+        "before_type": "list",
+        "path": "$.messages[1].content"
+      }
+    ]
+  ],
+  "prefix_equalities": [
+    false,
+    true
+  ],
+  "prefix_sha256": [
+    {
+      "current": "837c5349ecad4670327572acb4f29e5256cf9680b1a841b6193167193d12cc02",
+      "previous": "cef8fd598caec8f405632bab3bfca8037796f2cc2901ea6305e0351441e9560a"
+    },
+    {
+      "current": "cfef492af09d58a96922a75c49e875720d3100f7eff8196fa2dbf235a4ea32b8",
+      "previous": "cfef492af09d58a96922a75c49e875720d3100f7eff8196fa2dbf235a4ea32b8"
+    }
+  ],
+  "queried_host_exact": true,
+  "request_bound": 3,
+  "request_count": 3,
+  "signed_block_counts": [
+    0,
+    1,
+    1
+  ],
+  "signed_history_exercised": true,
+  "signed_history_preserved": true,
+  "signed_probe": true,
+  "signed_tool_replay_passed": true,
+  "source_commit": "916f6fea9374cae31923ff56d43bd97ac1204402",
+  "source_hashes": {
+    "admission.py": "ec8a0b1e57acb0733c3b316ffee5499eea2230bf074f911f0c16af21b37ca877",
+    "directsdk.py": "36f8bb6bc6e2bd83cd01b26c8e3163592f9a81678928bfcd5eec20f992395f7a",
+    "directsdk_setup.py": "0e78787d7771ca83e81c4e2d6f9b224bcf7bae175441c08d7aef2f50864084ab",
+    "inert_mcp.py": "bf20a09b2358600981b115c32845ec24722cb66adfc18d247d1c35ed999a0e0a",
+    "model_catalog.py": "3cbb588caa3838aa2e5aa9039fc8c52e6f58a84ea80702aa2a413fcd10a34ff7"
+  },
+  "source_sha256": "e37e39e5f2a1c0952b4bcbeeef22979c88cc150ad27d05487562662140947768",
+  "static_directives": [
+    [
+      {
+        "path": "$.system[1]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      },
+      {
+        "path": "$.system[2]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      }
+    ],
+    [
+      {
+        "path": "$.system[1]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      },
+      {
+        "path": "$.system[2]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      }
+    ],
+    [
+      {
+        "path": "$.system[1]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      },
+      {
+        "path": "$.system[2]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      }
+    ]
+  ],
+  "static_directives_identical": [
+    true,
+    true
+  ],
+  "status": "completed",
+  "synthetic_workload": true,
+  "timeout_seconds": 90,
+  "tool_call_counts": [
+    2,
+    2
+  ],
+  "upstream_request_count": 3
+}

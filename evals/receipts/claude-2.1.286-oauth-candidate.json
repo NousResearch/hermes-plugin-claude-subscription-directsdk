@@ -1,0 +1,391 @@
+{
+  "acceptance_passed": false,
+  "admission_statuses": [
+    200,
+    200,
+    200,
+    200,
+    200,
+    200
+  ],
+  "api_provider": "firstParty",
+  "auth_logged_in": true,
+  "auth_method": "claude.ai",
+  "binary_sha256": "fe503f65c6289d59c23e5b21ae44f03583f997dd33a2cbfc75ab4f96fb8fc73f",
+  "binary_version": "2.1.286 (Claude Code)",
+  "blocked_request_count": 0,
+  "cache_scope_note": "Run nonce limits prefix reuse; no globally-cold cache claim.",
+  "client_recreated": true,
+  "completed": true,
+  "continuity_boundaries": [
+    "initial",
+    "tool_continuation",
+    "tool_continuation",
+    "tool_continuation",
+    "tool_continuation_after_recreation",
+    "new_user_control"
+  ],
+  "finish_reasons": [
+    "tool_calls",
+    "tool_calls",
+    "tool_calls",
+    "tool_calls",
+    "stop",
+    "stop"
+  ],
+  "label": "candidate",
+  "marker_locations": [
+    [
+      "$.system[1]",
+      "$.system[2]",
+      "$.messages[1].content[0]"
+    ],
+    [
+      "$.system[1]",
+      "$.system[2]",
+      "$.messages[3].content[1]"
+    ],
+    [
+      "$.system[1]",
+      "$.system[2]",
+      "$.messages[5].content[1]"
+    ],
+    [
+      "$.system[1]",
+      "$.system[2]",
+      "$.messages[7].content[1]"
+    ],
+    [
+      "$.system[1]",
+      "$.system[2]",
+      "$.messages[9].content[1]"
+    ],
+    [
+      "$.system[1]",
+      "$.system[2]",
+      "$.messages[10].content[0]"
+    ]
+  ],
+  "marker_settings": [
+    [
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      }
+    ],
+    [
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      }
+    ],
+    [
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      }
+    ],
+    [
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      }
+    ],
+    [
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      }
+    ],
+    [
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      }
+    ]
+  ],
+  "marker_settings_identical": [
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "max_output_tokens": 1200,
+  "model": "claude-sonnet-5",
+  "native_usage_by_call": [
+    {
+      "cache_creation_input_tokens": 6464,
+      "cache_read_input_tokens": 0,
+      "input_tokens": 2,
+      "output_tokens": 149
+    },
+    {
+      "cache_creation_input_tokens": 687,
+      "cache_read_input_tokens": 5874,
+      "input_tokens": 33,
+      "output_tokens": 149
+    },
+    {
+      "cache_creation_input_tokens": 301,
+      "cache_read_input_tokens": 6561,
+      "input_tokens": 33,
+      "output_tokens": 149
+    },
+    {
+      "cache_creation_input_tokens": 293,
+      "cache_read_input_tokens": 6862,
+      "input_tokens": 33,
+      "output_tokens": 149
+    },
+    {
+      "cache_creation_input_tokens": 301,
+      "cache_read_input_tokens": 7155,
+      "input_tokens": 33,
+      "output_tokens": 140
+    },
+    {
+      "cache_creation_input_tokens": 140,
+      "cache_read_input_tokens": 7456,
+      "input_tokens": 225,
+      "output_tokens": 29
+    }
+  ],
+  "native_usage_totals": {
+    "cache_creation_input_tokens": 8186,
+    "cache_read_input_tokens": 33908,
+    "input_tokens": 359,
+    "output_tokens": 765
+  },
+  "path_differences": [
+    [
+      {
+        "change": "list_length",
+        "path": "$.messages[0].content"
+      },
+      {
+        "change": "value",
+        "path": "$.messages[0].content[0].text"
+      },
+      {
+        "after_type": "str",
+        "before_type": "list",
+        "path": "$.messages[1].content"
+      }
+    ]
+  ],
+  "prefix_equalities": [
+    false,
+    true,
+    true,
+    true,
+    true
+  ],
+  "prefix_sha256": [
+    {
+      "current": "4d62f1927faf9461a0e08f161f6f340894a4de0203270b15360e3e1cf8fca98c",
+      "previous": "3ffb10e735900cb4341f56580cd47de57e0ee27755362fbb3f4b6fa6f29b13ec"
+    },
+    {
+      "current": "37932788fb4eb9402f4d64f961c00259af2a59c1ecec0ae2126e791764e184a0",
+      "previous": "37932788fb4eb9402f4d64f961c00259af2a59c1ecec0ae2126e791764e184a0"
+    },
+    {
+      "current": "2eb4fe1e65fd19dd35e8a5d57f7d50f27a45923605fb7b2640689c38c2f937c4",
+      "previous": "2eb4fe1e65fd19dd35e8a5d57f7d50f27a45923605fb7b2640689c38c2f937c4"
+    },
+    {
+      "current": "104fcf081ea4a5636e2588affa0a1f31c590197bf154de63774e2e6f77d066bc",
+      "previous": "104fcf081ea4a5636e2588affa0a1f31c590197bf154de63774e2e6f77d066bc"
+    },
+    {
+      "current": "18a1a429ee48b7734101b9d4a140e4a3593c5db977b361749893701614ad9305",
+      "previous": "18a1a429ee48b7734101b9d4a140e4a3593c5db977b361749893701614ad9305"
+    }
+  ],
+  "queried_host_exact": true,
+  "request_bound": 6,
+  "request_count": 6,
+  "signed_block_counts": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "signed_history_exercised": false,
+  "signed_history_preserved": true,
+  "source_commit": "916f6fea9374cae31923ff56d43bd97ac1204402",
+  "source_hashes": {
+    "admission.py": "ec8a0b1e57acb0733c3b316ffee5499eea2230bf074f911f0c16af21b37ca877",
+    "directsdk.py": "36f8bb6bc6e2bd83cd01b26c8e3163592f9a81678928bfcd5eec20f992395f7a",
+    "directsdk_setup.py": "0e78787d7771ca83e81c4e2d6f9b224bcf7bae175441c08d7aef2f50864084ab",
+    "inert_mcp.py": "bf20a09b2358600981b115c32845ec24722cb66adfc18d247d1c35ed999a0e0a",
+    "model_catalog.py": "3cbb588caa3838aa2e5aa9039fc8c52e6f58a84ea80702aa2a413fcd10a34ff7"
+  },
+  "source_sha256": "e37e39e5f2a1c0952b4bcbeeef22979c88cc150ad27d05487562662140947768",
+  "static_directives": [
+    [
+      {
+        "path": "$.system[1]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      },
+      {
+        "path": "$.system[2]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      }
+    ],
+    [
+      {
+        "path": "$.system[1]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      },
+      {
+        "path": "$.system[2]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      }
+    ],
+    [
+      {
+        "path": "$.system[1]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      },
+      {
+        "path": "$.system[2]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      }
+    ],
+    [
+      {
+        "path": "$.system[1]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      },
+      {
+        "path": "$.system[2]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      }
+    ],
+    [
+      {
+        "path": "$.system[1]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      },
+      {
+        "path": "$.system[2]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      }
+    ],
+    [
+      {
+        "path": "$.system[1]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      },
+      {
+        "path": "$.system[2]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      }
+    ]
+  ],
+  "static_directives_identical": [
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "status": "completed",
+  "synthetic_workload": true,
+  "timeout_seconds": 90,
+  "tool_call_counts": [
+    2,
+    2,
+    2,
+    2
+  ],
+  "upstream_request_count": 6
+}

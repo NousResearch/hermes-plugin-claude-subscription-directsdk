@@ -1,0 +1,427 @@
+{
+  "acceptance_passed": false,
+  "admission_statuses": [
+    200,
+    200,
+    200,
+    200,
+    200,
+    200
+  ],
+  "api_provider": "firstParty",
+  "auth_logged_in": true,
+  "auth_method": "claude.ai",
+  "binary_sha256": "fe503f65c6289d59c23e5b21ae44f03583f997dd33a2cbfc75ab4f96fb8fc73f",
+  "binary_version": "2.1.286 (Claude Code)",
+  "blocked_request_count": 0,
+  "cache_scope_note": "Run nonce limits prefix reuse; no globally-cold cache claim.",
+  "client_recreated": true,
+  "completed": true,
+  "continuity_boundaries": [
+    "initial",
+    "tool_continuation",
+    "tool_continuation",
+    "tool_continuation",
+    "tool_continuation_after_recreation",
+    "new_user_control"
+  ],
+  "finish_reasons": [
+    "tool_calls",
+    "tool_calls",
+    "tool_calls",
+    "tool_calls",
+    "stop",
+    "stop"
+  ],
+  "label": "baseline",
+  "marker_locations": [
+    [
+      "$.system[1]",
+      "$.system[2]",
+      "$.messages[1].content[0]"
+    ],
+    [
+      "$.system[1]",
+      "$.system[2]",
+      "$.messages[2].content[1]"
+    ],
+    [
+      "$.system[1]",
+      "$.system[2]",
+      "$.messages[4].content[2]"
+    ],
+    [
+      "$.system[1]",
+      "$.system[2]",
+      "$.messages[6].content[2]"
+    ],
+    [
+      "$.system[1]",
+      "$.system[2]",
+      "$.messages[8].content[2]"
+    ],
+    [
+      "$.system[1]",
+      "$.system[2]",
+      "$.messages[10].content[0]"
+    ]
+  ],
+  "marker_settings": [
+    [
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      }
+    ],
+    [
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      }
+    ],
+    [
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      }
+    ],
+    [
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      }
+    ],
+    [
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      }
+    ],
+    [
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      },
+      {
+        "ttl": "1h",
+        "type": "ephemeral"
+      }
+    ]
+  ],
+  "marker_settings_identical": [
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "max_output_tokens": 1200,
+  "model": "claude-sonnet-5",
+  "native_usage_by_call": [
+    {
+      "cache_creation_input_tokens": 6465,
+      "cache_read_input_tokens": 0,
+      "input_tokens": 2,
+      "output_tokens": 149
+    },
+    {
+      "cache_creation_input_tokens": 537,
+      "cache_read_input_tokens": 5875,
+      "input_tokens": 363,
+      "output_tokens": 191
+    },
+    {
+      "cache_creation_input_tokens": 343,
+      "cache_read_input_tokens": 6412,
+      "input_tokens": 357,
+      "output_tokens": 180
+    },
+    {
+      "cache_creation_input_tokens": 332,
+      "cache_read_input_tokens": 6755,
+      "input_tokens": 355,
+      "output_tokens": 197
+    },
+    {
+      "cache_creation_input_tokens": 341,
+      "cache_read_input_tokens": 7087,
+      "input_tokens": 363,
+      "output_tokens": 105
+    },
+    {
+      "cache_creation_input_tokens": 255,
+      "cache_read_input_tokens": 7428,
+      "input_tokens": 225,
+      "output_tokens": 19
+    }
+  ],
+  "native_usage_totals": {
+    "cache_creation_input_tokens": 8273,
+    "cache_read_input_tokens": 33557,
+    "input_tokens": 1665,
+    "output_tokens": 841
+  },
+  "path_differences": [
+    [
+      {
+        "change": "list_length",
+        "path": "$[1].content"
+      },
+      {
+        "change": "value",
+        "path": "$[1].content[1].text"
+      }
+    ],
+    [
+      {
+        "change": "list_length",
+        "path": "$.messages[0].content"
+      },
+      {
+        "change": "value",
+        "path": "$.messages[0].content[0].text"
+      },
+      {
+        "after_type": "str",
+        "before_type": "list",
+        "path": "$.messages[1].content"
+      }
+    ],
+    [
+      {
+        "change": "value",
+        "path": "$[1].content"
+      }
+    ],
+    [
+      {
+        "change": "list_length",
+        "path": "$[1].content"
+      },
+      {
+        "change": "value",
+        "path": "$[1].content[0].text"
+      }
+    ],
+    [
+      {
+        "change": "list_length",
+        "path": "$[1].content"
+      },
+      {
+        "change": "value",
+        "path": "$[1].content[1].text"
+      }
+    ]
+  ],
+  "prefix_equalities": [
+    false,
+    true,
+    true,
+    true,
+    true
+  ],
+  "prefix_sha256": [
+    {
+      "current": "137d24889e0419e88ac5c01be5c5d4bb4fa6f4f83a1effcbd22518497ea52b06",
+      "previous": "3b81f9845e982682c39c23b8c5fd766003371932b7da17f3d1a8293e3f068d5e"
+    },
+    {
+      "current": "40ee7413d34301e8d6e200d3d5ecd150dff35b712bbe66ba5a2e53beb1252b8d",
+      "previous": "40ee7413d34301e8d6e200d3d5ecd150dff35b712bbe66ba5a2e53beb1252b8d"
+    },
+    {
+      "current": "137da51dded3f50d6376754e5a6a5c9f021b8d39e92ee47796386c8a2d883e9b",
+      "previous": "137da51dded3f50d6376754e5a6a5c9f021b8d39e92ee47796386c8a2d883e9b"
+    },
+    {
+      "current": "15b6f7eaa0ef31349008e293a893ee67e3ded9b543004d234a3eaf343eb5ed9d",
+      "previous": "15b6f7eaa0ef31349008e293a893ee67e3ded9b543004d234a3eaf343eb5ed9d"
+    },
+    {
+      "current": "d4200e2b0707bd8fb75e6a1ff341109c76768fddaccdc049f0f90cd22e32af3d",
+      "previous": "d4200e2b0707bd8fb75e6a1ff341109c76768fddaccdc049f0f90cd22e32af3d"
+    }
+  ],
+  "queried_host_exact": false,
+  "request_bound": 6,
+  "request_count": 6,
+  "signed_block_counts": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "signed_history_exercised": false,
+  "signed_history_preserved": true,
+  "source_commit": "ef73726cfaf2fa0ee041e55572f406e2c24fed83",
+  "source_hashes": {
+    "admission.py": "20500dd7c8f8951a71a8e92206a6d52f0f03d8790c6602b1f80c2f7b5483d0aa",
+    "directsdk.py": "36f8bb6bc6e2bd83cd01b26c8e3163592f9a81678928bfcd5eec20f992395f7a",
+    "directsdk_setup.py": "0e78787d7771ca83e81c4e2d6f9b224bcf7bae175441c08d7aef2f50864084ab",
+    "inert_mcp.py": "bf20a09b2358600981b115c32845ec24722cb66adfc18d247d1c35ed999a0e0a",
+    "model_catalog.py": "3cbb588caa3838aa2e5aa9039fc8c52e6f58a84ea80702aa2a413fcd10a34ff7"
+  },
+  "source_sha256": "846ca9e49c354dbfbf1504998f5fa2ee419166e718f321dde0d71aec921e188b",
+  "static_directives": [
+    [
+      {
+        "path": "$.system[1]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      },
+      {
+        "path": "$.system[2]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      }
+    ],
+    [
+      {
+        "path": "$.system[1]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      },
+      {
+        "path": "$.system[2]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      }
+    ],
+    [
+      {
+        "path": "$.system[1]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      },
+      {
+        "path": "$.system[2]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      }
+    ],
+    [
+      {
+        "path": "$.system[1]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      },
+      {
+        "path": "$.system[2]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      }
+    ],
+    [
+      {
+        "path": "$.system[1]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      },
+      {
+        "path": "$.system[2]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      }
+    ],
+    [
+      {
+        "path": "$.system[1]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      },
+      {
+        "path": "$.system[2]",
+        "settings": {
+          "ttl": "1h",
+          "type": "ephemeral"
+        }
+      }
+    ]
+  ],
+  "static_directives_identical": [
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "status": "completed",
+  "synthetic_workload": true,
+  "timeout_seconds": 90,
+  "tool_call_counts": [
+    2,
+    2,
+    2,
+    2
+  ],
+  "upstream_request_count": 6
+}

@@ -169,6 +169,8 @@ python evals/directsdk_admission.py /path/to/claude
 python evals/directsdk_cache_wire.py /path/to/claude
 ```
 
+The separate [subscription OAuth restoration qualification](evals/oauth-restoration-qualification.md) records a real first-party baseline/candidate comparison and a genuine signed-thinking continuation through client recreation on Claude Code 2.1.286. Exact candidate tool-result restoration and the scoped signed replay gate passed; the inherited initial ordinary-user prefix difference keeps full-chain acceptance false. Sanitized receipts accompany the report. This is scoped Linux evidence, not a claim of universal OAuth context equivalence, allowance savings or upstream CI approval.
+
 The parallel replay qualification uses the **real Claude CLI** with an isolated home, a dummy API key and synthetic loopback responses. It refuses to run unless only the loopback network interface is present. On Linux, with a Python environment containing Hermes core's dependencies and `HERMES_AGENT_REPO` pointing to that checkout:
 
 ```sh
