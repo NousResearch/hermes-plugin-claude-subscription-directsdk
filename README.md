@@ -169,6 +169,15 @@ python evals/directsdk_admission.py /path/to/claude
 python evals/directsdk_cache_wire.py /path/to/claude
 ```
 
+The parallel replay qualification uses the **real Claude CLI** with an isolated home, a dummy API key and synthetic loopback responses. It refuses to run unless only the loopback network interface is present. On Linux, with a Python environment containing Hermes core's dependencies and `HERMES_AGENT_REPO` pointing to that checkout:
+
+```sh
+PYTHONPATH="$HERMES_AGENT_REPO" unshare --net sh -c \
+  'ip link set lo up && python evals/directsdk_parallel_replay.py /path/to/claude'
+```
+
+This requires permission to create a network namespace; do not remove the isolation guard to work around a failure. Six requests exercise two parallel tools per response, rotating string/one-block/split-block results and absent/explicit-false `is_error`, with serialized history and client recreation before request five. Every continuation compares the exact JSON content/representation through the previous message breakpoint, excluding only moving cache directives; marker settings, static marker locations and signed historical blocks are checked separately. The CLI can append separate context frames after the queried tool frame, so the latter is identified uniquely by its ordered tool IDs rather than assumed to be the final message. Output contains compact hash receipts, not raw requests or headers. This qualifies the specified binary's wire continuity, not actual cache hit rates, server-side signature validation, OAuth account-context handling or other CLI versions/platforms.
+
 Transport invariant tests cover signed replay and harmless normalization, transformed projections, final tool batches/usage, async use, lazy failure, invalid parameters, conflicting auth, and active/paused/unstarted stream cleanup. The admission regression fails on the previous implementation (two upstream requests) and passes with one request, preserving first-response usage including zero values. Its cancellation control verifies upstream socket closure. A real-native ten-case loopback qualification covers normal text, tools, output/context limits, thinking-only recovery, refusal, HTTP errors, disconnects and cancellation, with one upstream request per call. Its responses are synthetic protocol fixtures, not paid-model evidence.
 
 Installed-plugin discovery (`$HERMES_HOME/plugins/<name>/`) and every missing-`claude` path are covered against a temporary `HERMES_HOME`, including constructing the bundled client without spawning native or accessing auth. A fresh subscription-backed AIAgent loop completed two API calls with host `read_file` execution and SQLite persistence; separate service requests accepted edited-assistant replay. Native loopback qualification also accepted 182K of tool schemas plus a 176K system prompt through file-backed settings. Loopback responses remain fixtures, not paid-model evidence.

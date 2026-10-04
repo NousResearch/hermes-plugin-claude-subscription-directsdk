@@ -1,0 +1,257 @@
+{
+  "passed": true,
+  "native_version": "2.1.286 (Claude Code)",
+  "native_sha256": "fe503f65c6289d59c23e5b21ae44f03583f997dd33a2cbfc75ab4f96fb8fc73f",
+  "requests": 6,
+  "parallel_tools_per_response": 2,
+  "client_recreation_round": 4,
+  "initial_replayed_turn_pairs": 12,
+  "requested_model": "claude-sonnet-5",
+  "input_variants": [
+    "string",
+    "one text block",
+    "split text blocks",
+    "absent is_error",
+    "is_error false"
+  ],
+  "network_isolation": "loopback-only namespace",
+  "credentials": "dummy, isolated home",
+  "synthetic_usage_not_cache_measurement": true,
+  "signed_history_preserved": true,
+  "prefix_receipts": [
+    {
+      "round": 0,
+      "client_recreated": false,
+      "breakpoint": [
+        25,
+        0,
+        "text"
+      ],
+      "cache_controls": [
+        {
+          "type": "ephemeral"
+        },
+        {
+          "type": "ephemeral"
+        },
+        {
+          "type": "ephemeral"
+        }
+      ],
+      "static_directives": [
+        {
+          "path": "$.system[1]",
+          "settings": {
+            "type": "ephemeral"
+          }
+        },
+        {
+          "path": "$.system[2]",
+          "settings": {
+            "type": "ephemeral"
+          }
+        }
+      ]
+    },
+    {
+      "round": 1,
+      "client_recreated": false,
+      "breakpoint": [
+        27,
+        1,
+        "tool_result"
+      ],
+      "cache_controls": [
+        {
+          "type": "ephemeral"
+        },
+        {
+          "type": "ephemeral"
+        },
+        {
+          "type": "ephemeral"
+        }
+      ],
+      "static_directives": [
+        {
+          "path": "$.system[1]",
+          "settings": {
+            "type": "ephemeral"
+          }
+        },
+        {
+          "path": "$.system[2]",
+          "settings": {
+            "type": "ephemeral"
+          }
+        }
+      ],
+      "separate_trailing_native_frames": 1,
+      "previous_prefix_sha256": "64f1d7712b577b060afcd2b06892bb98ceeaf263920bbc82f412a844607a2b8a",
+      "replayed_prefix_sha256": "64f1d7712b577b060afcd2b06892bb98ceeaf263920bbc82f412a844607a2b8a",
+      "prefix_identical": true,
+      "marker_settings_identical": true,
+      "differing_paths": []
+    },
+    {
+      "round": 2,
+      "client_recreated": false,
+      "breakpoint": [
+        29,
+        1,
+        "tool_result"
+      ],
+      "cache_controls": [
+        {
+          "type": "ephemeral"
+        },
+        {
+          "type": "ephemeral"
+        },
+        {
+          "type": "ephemeral"
+        }
+      ],
+      "static_directives": [
+        {
+          "path": "$.system[1]",
+          "settings": {
+            "type": "ephemeral"
+          }
+        },
+        {
+          "path": "$.system[2]",
+          "settings": {
+            "type": "ephemeral"
+          }
+        }
+      ],
+      "separate_trailing_native_frames": 1,
+      "previous_prefix_sha256": "0e23010db231be5645744ee83fe4dae1eb2d6ac389f03d7898c464cb53c90e2c",
+      "replayed_prefix_sha256": "0e23010db231be5645744ee83fe4dae1eb2d6ac389f03d7898c464cb53c90e2c",
+      "prefix_identical": true,
+      "marker_settings_identical": true,
+      "differing_paths": []
+    },
+    {
+      "round": 3,
+      "client_recreated": false,
+      "breakpoint": [
+        31,
+        1,
+        "tool_result"
+      ],
+      "cache_controls": [
+        {
+          "type": "ephemeral"
+        },
+        {
+          "type": "ephemeral"
+        },
+        {
+          "type": "ephemeral"
+        }
+      ],
+      "static_directives": [
+        {
+          "path": "$.system[1]",
+          "settings": {
+            "type": "ephemeral"
+          }
+        },
+        {
+          "path": "$.system[2]",
+          "settings": {
+            "type": "ephemeral"
+          }
+        }
+      ],
+      "separate_trailing_native_frames": 1,
+      "previous_prefix_sha256": "36ab29b55f2d2af2ff0e122f905ed31971efe801e95afd909244ae49c3e9491b",
+      "replayed_prefix_sha256": "36ab29b55f2d2af2ff0e122f905ed31971efe801e95afd909244ae49c3e9491b",
+      "prefix_identical": true,
+      "marker_settings_identical": true,
+      "differing_paths": []
+    },
+    {
+      "round": 4,
+      "client_recreated": true,
+      "breakpoint": [
+        33,
+        1,
+        "tool_result"
+      ],
+      "cache_controls": [
+        {
+          "type": "ephemeral"
+        },
+        {
+          "type": "ephemeral"
+        },
+        {
+          "type": "ephemeral"
+        }
+      ],
+      "static_directives": [
+        {
+          "path": "$.system[1]",
+          "settings": {
+            "type": "ephemeral"
+          }
+        },
+        {
+          "path": "$.system[2]",
+          "settings": {
+            "type": "ephemeral"
+          }
+        }
+      ],
+      "separate_trailing_native_frames": 1,
+      "previous_prefix_sha256": "fb470f3ea9688f5dbf3e3b33418d752677b13596a32fec92dc1fb1a5bb159e31",
+      "replayed_prefix_sha256": "fb470f3ea9688f5dbf3e3b33418d752677b13596a32fec92dc1fb1a5bb159e31",
+      "prefix_identical": true,
+      "marker_settings_identical": true,
+      "differing_paths": []
+    },
+    {
+      "round": 5,
+      "client_recreated": false,
+      "breakpoint": [
+        35,
+        1,
+        "tool_result"
+      ],
+      "cache_controls": [
+        {
+          "type": "ephemeral"
+        },
+        {
+          "type": "ephemeral"
+        },
+        {
+          "type": "ephemeral"
+        }
+      ],
+      "static_directives": [
+        {
+          "path": "$.system[1]",
+          "settings": {
+            "type": "ephemeral"
+          }
+        },
+        {
+          "path": "$.system[2]",
+          "settings": {
+            "type": "ephemeral"
+          }
+        }
+      ],
+      "separate_trailing_native_frames": 1,
+      "previous_prefix_sha256": "f0f88ddaf74c3e7703c3ff9bd714150296049954c32618fe7868b5f65c6cde93",
+      "replayed_prefix_sha256": "f0f88ddaf74c3e7703c3ff9bd714150296049954c32618fe7868b5f65c6cde93",
+      "prefix_identical": true,
+      "marker_settings_identical": true,
+      "differing_paths": []
+    }
+  ]
+}
