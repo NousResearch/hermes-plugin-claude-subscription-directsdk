@@ -374,6 +374,37 @@ def _private_dir(path):
     return stat.S_ISDIR(info.st_mode) and (not hasattr(os, 'getuid') or (info.st_uid == os.getuid() and not info.st_mode & 0o077))
 
 
+def _tighten(path):
+    """Close a directory this process just created. Some filesystems hand back a fresh 0700 mkdir as
+    0770, and _private_dir would then refuse our own directory on the next request, moving the cwd
+    every time. One found open is never tightened or adopted. The mode changes through a descriptor
+    opened without following links: a parent others can write lets them swap a symlink in after the
+    mkdir, and chmod by name would then change whatever file of ours it points at. Best effort; the
+    _private_dir check that follows decides."""
+    if hasattr(os, 'getuid'):
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except OSError:
+            return path
+        try:
+            os.fchmod(fd, 0o700)
+        except OSError:
+            pass
+        finally:
+            os.close(fd)
+    return path
+
+
+def _create_private(path):
+    """Create path closed to others; False when something already sits there."""
+    try:
+        os.makedirs(path, mode=0o700)
+    except FileExistsError:
+        return False
+    _tighten(path)
+    return True
+
+
 def shared_workdir():
     """One native cwd for every client of this OS user, or None to fall back to a private one.
 
@@ -389,7 +420,7 @@ def shared_workdir():
         parent = path.parent.stat().st_mode
         if parent & 0o022 and not parent & stat.S_ISVTX:
             return None
-        path.mkdir(mode=0o700, exist_ok=True)
+        _create_private(path)
         if not _private_dir(path):
             return None
         os.utime(path)
@@ -442,16 +473,16 @@ class Client:
             return shared
         with self._lock:
             if self._owned_cwd is None:
-                self._owned_cwd = tempfile.mkdtemp(prefix='claude-directsdk-cwd-')
+                self._owned_cwd = _tighten(tempfile.mkdtemp(prefix='claude-directsdk-cwd-'))
             else:
                 # A predictable path in a shared tempdir: never adopt one someone else recreated.
                 try:
-                    os.makedirs(self._owned_cwd, mode=0o700, exist_ok=True)
+                    _create_private(self._owned_cwd)
                     ours = _private_dir(self._owned_cwd)
                 except OSError:
                     ours = False
                 if not ours:
-                    self._owned_cwd = tempfile.mkdtemp(prefix='claude-directsdk-cwd-')
+                    self._owned_cwd = _tighten(tempfile.mkdtemp(prefix='claude-directsdk-cwd-'))
                 os.utime(self._owned_cwd)
             return self._owned_cwd
 

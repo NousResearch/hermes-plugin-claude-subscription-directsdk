@@ -11,6 +11,7 @@ built a new client.
 import importlib.util
 import os
 import shutil
+import stat
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -129,3 +130,61 @@ def test_unsafe_shared_workspace_falls_back_to_one_private_workspace_per_client(
     if hasattr(os, "getuid"):
         assert Path(private).name != f"claude-directsdk-cwd-{os.getuid()}", "an unsafe shared path must never be used"
     assert not Path(cwds[-1]).exists(), "a private workspace must be removed with its client"
+
+
+def widened_mkdir(monkeypatch):
+    """A default ACL on the tempdir turns every fresh 0700 mkdir into 0770 (seen on a Hermes deployment)."""
+    real = os.mkdir
+
+    def mkdir(path, mode=0o777, *args, **kwargs):
+        real(path, mode, *args, **kwargs)
+        os.chmod(path, 0o770)
+    monkeypatch.setattr(native.os, "mkdir", mkdir)
+
+
+@posix_only
+@pytest.mark.parametrize("parent_mode", [0o700, 0o770])
+def test_a_default_acl_on_the_tempdir_does_not_move_the_workspace_between_requests(parent_mode, tmp_path, monkeypatch):
+    root = tmp_path / "tmp"
+    root.mkdir(mode=0o700)
+    root.chmod(parent_mode)
+    monkeypatch.setattr(native.tempfile, "tempdir", str(root))
+    widened_mkdir(monkeypatch)
+    client = fake_client(tmp_path)
+    try:
+        for _ in range(3):
+            list(client.create(**REQUEST))
+    finally:
+        client.close()
+    cwds = (tmp_path / "cwds.log").read_text().splitlines()
+    assert len(set(cwds)) == 1, cwds
+    # A safe parent keeps the one shared workspace; the group-writable one (no sticky bit) still refuses it.
+    assert (Path(cwds[0]) == shared_path(root)) == (parent_mode == 0o700), cwds
+
+
+@posix_only
+def test_tightening_never_follows_a_symlink_swapped_in_after_the_mkdir(tmp_path, monkeypatch):
+    """Someone who can write the tempdir renames the fresh workspace away and leaves a symlink to a file of ours."""
+    root = tmp_path / "tmp"
+    root.mkdir(mode=0o700)
+    root.chmod(0o770)
+    monkeypatch.setattr(native.tempfile, "tempdir", str(root))
+    victim = tmp_path / "victim"
+    victim.write_text("ours")
+    victim.chmod(0o644)
+    before = stat.S_IMODE(victim.stat().st_mode)  # an inheriting ACL (ZFS nfs4acl) may not give back 0644
+    real = os.mkdir
+
+    def mkdir(path, mode=0o777, *args, **kwargs):
+        real(path, mode, *args, **kwargs)
+        if "claude-directsdk-cwd-" in os.fspath(path):
+            os.rename(path, os.fspath(path) + ".moved")
+            os.symlink(victim, path)
+    monkeypatch.setattr(native.os, "mkdir", mkdir)
+    client = fake_client(tmp_path)
+    try:
+        with pytest.raises(OSError):
+            list(client.create(**REQUEST))
+    finally:
+        client.close()
+    assert stat.S_IMODE(victim.stat().st_mode) == before, "chmod followed the swapped-in symlink"
