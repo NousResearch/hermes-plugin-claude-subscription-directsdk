@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import logging
 import math
 import os
 from pathlib import Path
@@ -39,6 +40,9 @@ class ClaudeCodeLoggedOut(RuntimeError):
 
 
 CARRIER = 'claude-subscription-directsdk-experimental.native_assistant'
+
+logger = logging.getLogger(__name__)
+
 PREFIX = 'mcp__hermes__'
 
 
@@ -648,7 +652,15 @@ class Client:
                     if block.get('type') == 'tool_use':
                         name = block['name']
                         if not name.startswith(PREFIX) or name[len(PREFIX):] not in names:
-                            raise RuntimeError('Native returned a tool outside the current host inventory')
+                            # A stray tool_use (hallucinated or unprefixed name) must not kill the
+                            # whole request. Log it, keep the call with the name the host will
+                            # report as unknown, and let the host's tool executor answer with an
+                            # error result the model can correct on its next turn — the same
+                            # behaviour every OpenAI-compatible backend exhibits.
+                            logger.warning('Native tool_use outside the host inventory (request id %s): %r; passing through for host-side error feedback',
+                                           ((assistants[-1] or {}).get('id') if assistants else None), name)
+                            calls.append({'id': block['id'], 'type': 'function', 'function': {'name': name, 'arguments': json.dumps(block['input'], separators=(',', ':'), allow_nan=False)}})
+                            continue
                         calls.append({'id': block['id'], 'type': 'function', 'function': {'name': name[len(PREFIX):], 'arguments': json.dumps(block['input'], separators=(',', ':'), allow_nan=False)}})
                 boundary = bool(calls) and final.get('subtype') == 'error_max_turns' and p.returncode == 1
                 if not boundary and not native_failure_handled and (p.returncode != 0 or final.get('is_error') or final.get('subtype') != 'success'):

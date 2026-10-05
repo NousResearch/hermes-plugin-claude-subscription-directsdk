@@ -64,6 +64,34 @@ sys.exit(1 if len(blocks)>1 else 0)
 """
 
 
+FAKE_STRAY = r"""
+import json, os, pathlib, sys
+if '--version' in sys.argv:
+ print('2.1.263 (Claude Code)'); sys.exit()
+rows=[]
+for line in sys.stdin:
+ r=json.loads(line); rows.append(r)
+ if r.get('shouldQuery') is False:
+  print(json.dumps({'type':'result','num_turns':0,'is_error':False}),flush=True)
+settings=json.loads(pathlib.Path(sys.argv[sys.argv.index('--settings')+1]).read_text())
+wire=json.loads(settings['env']['CLAUDE_CODE_EXTRA_BODY'])
+# First query turn: emit one stray tool_use (unprefixed name outside the host inventory).
+# Second query turn (after the host fed back an error tool result): call the real tool.
+turn = sum(1 for r in rows if r.get('shouldQuery') is not False)
+if turn == 1:
+ blocks=[{'type':'text','text':'I will check the language.\\n'},
+         {'type':'tool_use','id':'toolu_stray','name':'check_dutch_text','input':{'text':'proef'}}]
+else:
+ blocks=[{'type':'text','text':'corrected\\n'},
+         {'type':'tool_use','id':'toolu_good','name':'mcp__hermes__probe','input':{'value':'y'}}]
+print(json.dumps({'type':'assistant','message':{'role':'assistant','content':blocks,'id':'msg_stray','model':'sonnet','stop_reason':'tool_use'}}),flush=True)
+print(json.dumps({'type':'stream_event','event':{'type':'message_stop'}}),flush=True)
+u={'input_tokens':3,'output_tokens':5,'cache_read_input_tokens':7,'cache_creation_input_tokens':11}
+print(json.dumps({'type':'result','num_turns':turn,'subtype':'error_max_turns','is_error':True,'usage':u,'total_cost_usd':.01,'modelUsage':{'sonnet':{'costBasis':'list'}}}),flush=True)
+sys.exit(1)
+"""
+
+
 def _wait_gone(*pids, timeout=15):
     # Reaping is event-driven; the bound only guards a hang and must tolerate a loaded runner.
     import psutil
@@ -169,6 +197,36 @@ class Contract(unittest.TestCase):
                 )
                 msg["content"] = "middleware changed"
                 self.assertEqual(client.chat.completions.create(**req).choices[0].message.content, "done")
+            client.close()
+
+    def test_stray_tool_use_passes_through_with_host_error_feedback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            import directsdk
+
+            script = Path(tmp) / "native_stray.py"
+            script.write_text(FAKE_STRAY)
+            client = directsdk.Client(
+                command=[sys.executable, str(script)],
+                env={"PATH": os.environ["PATH"], "HOME": tmp},
+            )
+            req = self.request()
+            req["timeout"] = SimpleNamespace(read=10)
+            result = client.chat.completions.create(**req)
+            message = result.choices[0].message
+            # The stray call survives with its raw name: the host answers it with an
+            # "Unknown tool" result instead of the request dying with RuntimeError.
+            self.assertEqual(message.tool_calls[0].function.name, "check_dutch_text")
+            self.assertEqual(message.tool_calls[0].id, "toolu_stray")
+            self.assertEqual(result.choices[0].finish_reason, "tool_calls")
+            # Replay: host fed the error back as a tool result; native corrects itself.
+            msg = message.model_dump()
+            msg["content"] = (msg.get("content") or "").strip()
+            req["messages"] += [
+                msg,
+                {"role": "tool", "tool_call_id": "toolu_stray", "content": '{"error": "Unknown tool: check_dutch_text"}'},
+            ]
+            corrected = client.chat.completions.create(**req).choices[0].message
+            self.assertEqual(corrected.tool_calls[0].function.name, "probe")
             client.close()
 
     def test_logged_out_native_raises_the_login_hint(self):
