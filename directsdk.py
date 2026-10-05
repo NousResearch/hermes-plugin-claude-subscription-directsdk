@@ -758,8 +758,12 @@ class Client:
                         yield self._chunk(kwargs['model'], {'content': text[len(emitted):]})
                     else:
                         raise RuntimeError('Native final text differs from incremental stream')
+                thinking = ''.join(b.get('thinking', '') for b in blocks if b.get('type') == 'thinking') or None
+                # A turn of thinking alone (no text, no tool call) is Claude stalling, not answering. Hermes promotes a
+                # reasoning-only `stop` to the final answer, which ends the tool loop; left empty, its empty-response
+                # recovery nudges the model on, as before summarized display. The signed thinking still replays.
                 message = {'role': 'assistant', 'content': text or None, 'tool_calls': calls or None,
-                           'reasoning_content': ''.join(b.get('thinking', '') for b in blocks if b.get('type') == 'thinking') or None}
+                           'reasoning_content': thinking if text or calls else None}
                 carrier = {'type': CARRIER, 'version': 1, 'messages': assistants, 'projection': projection(message)}
                 message['reasoning_details'] = [carrier]
                 # An upstream refusal is Hermes' content_filter, as core's Anthropic transport maps it (even with a tool
