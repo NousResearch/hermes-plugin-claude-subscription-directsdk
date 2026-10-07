@@ -44,9 +44,16 @@ def _tool_history(url):
     ]
 
 
-def test_routing_consumers_follow_the_declaration(profile):
-    from tools.computer_use.vision_routing import should_route_capture_to_aux_vision
+def should_route_capture_to_aux_vision(provider, model, cfg):
+    try:  # Current core: the capture boundary calls the shared native-tool-result gate directly.
+        from tools.vision_tools import _native_tool_result_images
+    except ImportError:  # Older cores route captures through computer_use.vision_routing.
+        from tools.computer_use.vision_routing import should_route_capture_to_aux_vision as route
+        return route(provider, model, cfg)
+    return not _native_tool_result_images(provider, model, cfg)
 
+
+def test_routing_consumers_follow_the_declaration(profile):
     # computer_use screenshots stay on the main model only for declared ids.
     assert should_route_capture_to_aux_vision(profile.name, 'claude-opus-5-5[1m]', {}) is False
     assert should_route_capture_to_aux_vision(profile.name, 'unpinned-future-model', {}) is True
