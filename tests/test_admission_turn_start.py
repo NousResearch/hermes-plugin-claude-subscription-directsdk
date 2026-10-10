@@ -120,8 +120,11 @@ def message_marks(body):
             for j, b in enumerate(m['content']) if 'cache_control' in b]
 
 
-def mark_count(body):
-    return sum('cache_control' in b for b in body['tools'] + body['system']) + len(message_marks(body))
+def mark_count(value):
+    """Every breakpoint the API counts toward its four: nested markers and a top-level one included."""
+    if isinstance(value, dict):
+        return ('cache_control' in value) + sum(mark_count(v) for k, v in value.items() if k != 'cache_control')
+    return sum(map(mark_count, value)) if isinstance(value, list) else 0
 
 
 def plain(value):
@@ -227,6 +230,22 @@ def test_no_spare_slot_and_no_native_mark_to_move_forwards_the_fold_only():
     raw['cache_control'] = {'type': 'ephemeral'}  # top-level automatic caching takes a slot too
     body = json.loads(pin_message_breakpoint(json.dumps(raw).encode(), messages[-1]['content']))
     assert message_marks(body) == [(31, 0)]
+
+
+@pytest.mark.parametrize('layout', LAYOUTS)
+def test_a_nested_marker_takes_a_slot_so_the_request_stays_at_four(layout):
+    """A marker inside a historical tool_result's content (a host marker restoration carried back)
+    counts toward the four: 2.1.285 has no slot left and forwards the fold only, 2.1.287+ moves its
+    mark on the last assistant block. Neither forwards a fifth, which the API rejects."""
+    messages = turn(OPENING, 14, lambda n: True) + [{'role': 'user', 'content': [FOLLOW_UP]}]
+    raw = native(messages, layout)
+    raw['tools'][0].pop('cache_control', None)
+    raw['messages'][5]['content'][0]['content'] = [{'type': 'text', 'text': '1.0', 'cache_control': MARKER}]
+    body = json.loads(pin_message_breakpoint(json.dumps(raw).encode(), messages[-1]['content']))
+    assert mark_count(raw) == mark_count(body) == 4
+    assert body['messages'][5] == raw['messages'][5]
+    assert message_marks(body) == ([(31, 0)] if layout == '2.1.285' else [(0, 0), (31, 0)])
+    assert plain(body) == plain(raw) and body['tools'] == raw['tools'] and body['system'] == raw['system']
 
 
 def test_turn_mark_takes_the_ttl_of_the_mark_after_it():

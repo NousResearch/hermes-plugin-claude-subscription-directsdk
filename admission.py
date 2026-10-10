@@ -62,6 +62,19 @@ def _plain(block):
     return {k: v for k, v in block.items() if k != 'cache_control'} if isinstance(block, dict) else block
 
 
+def _breakpoints(value):
+    """Every ``cache_control`` in ``value``: nested ones (tool_result content) and a top-level one included."""
+    count, pending = 0, [value]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, dict):
+            count += 'cache_control' in node
+            pending += (v for k, v in node.items() if k != 'cache_control')
+        elif isinstance(node, list):
+            pending += node
+    return count
+
+
 def _frame_first(messages, queried):
     """Put Hermes' first user turn ahead of the context native prepends to it (#77).
 
@@ -118,9 +131,10 @@ def _keep_turn_mark(body, messages, last, target):
     before the turn's first assistant message with thinking. Distance is counted per block,
     without the API's merging of tool_use and tool_result runs, so an error only marks early.
     The mark takes the TTL of the next mark after it, so native's order of TTLs holds. It is
-    added only while the request stays within MAX_BREAKPOINTS; at the limit (2.1.287+ marks two
-    message blocks) a native mark between it and the marked recurring breakpoint moves there
-    instead, and otherwise nothing changes. Returns whether a mark was placed."""
+    added only while the request stays within MAX_BREAKPOINTS, counting every marker in the body
+    (a host marker restoration carried into tool_result content takes a slot too); at the limit
+    (2.1.287+ marks two message blocks) a native mark between it and the marked recurring
+    breakpoint moves there instead, and otherwise nothing changes. Returns whether a mark was placed."""
     opening = max((i for i in range(last) if _opens_turn(messages[i])), default=None)
     if opening is None:
         return False
@@ -145,11 +159,7 @@ def _keep_turn_mark(body, messages, last, target):
     later = [(i, k, b) for i, k, b in marks if (frame, j) < (i, k)]
     if not later:
         return False
-    system = body.get('system')
-    used = len(marks) + ('cache_control' in body) + sum(
-        isinstance(b, dict) and 'cache_control' in b
-        for part in (body.get('tools') or [], system if isinstance(system, list) else []) for b in part)
-    if used < MAX_BREAKPOINTS:
+    if _breakpoints(body) < MAX_BREAKPOINTS:
         content[j]['cache_control'] = copy.deepcopy(later[0][2]['cache_control'])
         return True
     spare = next((b for i, k, b in later if (i, k) < target[:2]), None)
