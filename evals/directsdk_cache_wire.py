@@ -3,6 +3,8 @@
 Run: python3 evals/directsdk_cache_wire.py /absolute/path/to/claude
 Uses the real DirectSDK and native binary, with a synthetic loopback Messages peer.
 Checks exact cached-prefix reuse, not cache hit rates; usage is deliberately synthetic.
+After a tool loop longer than the cache lookback, the next turn must carry a breakpoint on the
+prefix written before the loop's first thinking block (#122).
 Only compact hash receipts go to stdout. No raw traces or fixtures are retained.
 """
 import argparse
@@ -25,11 +27,22 @@ TOOLS = [{"type": "function", "function": {"name": "probe", "description": "Publ
           "parameters": {"type": "object", "properties": {}}}}]
 USAGE = {"input_tokens": 101, "output_tokens": 37, "cache_read_input_tokens": 211,
          "cache_creation_input_tokens": 313}
+# Pure tool continuation, two ordinary user turns, then a 14-round loop with thinking and the turn after it.
+SCHEDULE = [True, True, False, False] + [True] * 14 + [False, True]
+LOOKBACK = 20
 
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
                                     ensure_ascii=False).encode()).hexdigest()
+
+
+def cut(prompt, at):
+    i, j = at
+    prefix = copy.deepcopy(prompt)
+    prefix["messages"] = prefix["messages"][:i + 1]
+    prefix["messages"][-1]["content"] = prefix["messages"][-1]["content"][:j + 1]
+    return prefix
 
 
 def nodes(value):
@@ -127,11 +140,10 @@ def run(binary, model):
             history.extend([{"role": "user", "content": f"Public earlier question {i}"},
                             {"role": "assistant", "content": f"Public earlier answer {i}"}])
         history.append({"role": "user", "content": "Run the public probe."})
-        receipts, previous = [], None
+        receipts, previous, written, followups = [], None, set(), []
         try:
-            for round_number in range(6):
-                # Pure tool continuation, then ordinary user turns, then tools again.
-                peer.tools = round_number not in (2, 3)
+            for round_number, tools in enumerate(SCHEDULE):
+                peer.tools = tools
                 original = copy.deepcopy(history)
                 start = len(peer.wires)
                 result = client.create(model=model, messages=history, tools=TOOLS)
@@ -139,25 +151,33 @@ def run(binary, model):
                 assert len(peer.wires) == start + 1, "unexpected extra inference request"
                 wire = peer.wires[-1]
                 markers = [node["cache_control"] for node in nodes(wire) if "cache_control" in node]
-                message_markers = [(i, j) for i, msg in enumerate(wire["messages"])
+                fixed = [block.get("cache_control") for block in wire["tools"] + wire["system"]]
+                message_markers = [(i, j) for i, msg in enumerate(wire["messages"]) if isinstance(msg["content"], list)
                                    for j, block in enumerate(msg["content"]) if "cache_control" in block]
-                assert len(markers) <= 4 and len(message_markers) == 1, "extra cache breakpoints"
+                assert len(markers) <= 4 and 1 <= len(message_markers) <= 2, "extra cache breakpoints"
                 assert all(marker == markers[0] for marker in markers), "mixed native cache TTLs"
                 prompt = content({key: wire[key] for key in ("tools", "system", "messages")})
                 if previous is not None:
-                    old, old_markers, (i, j) = previous
-                    candidate = copy.deepcopy(prompt)
-                    candidate["messages"] = candidate["messages"][:i + 1]
-                    candidate["messages"][-1]["content"] = candidate["messages"][-1]["content"][:j + 1]
+                    old, old_fixed, at = previous
+                    candidate = cut(prompt, at)
                     assert candidate == old, f"cached prefix changed at round {round_number}: {digest(old)} != {digest(candidate)}"
-                    assert markers == old_markers, "native cache TTL/breakpoint policy changed"
+                    assert fixed == old_fixed, "native cache TTL/breakpoint policy changed"
                     receipts.append({"round": round_number, "old_prefix_sha256": digest(old),
                                      "replayed_prefix_sha256": digest(candidate)})
-                i, j = message_markers[-1]
-                prefix = copy.deepcopy(prompt)
-                prefix["messages"] = prefix["messages"][:i + 1]
-                prefix["messages"][-1]["content"] = prefix["messages"][-1]["content"][:j + 1]
-                previous = prefix, markers, (i, j)
+                if round_number == len(SCHEDULE) - 1:
+                    # The turn after the long loop: the recurring breakpoint is too far from the loop's
+                    # opening frame, so a second one must sit on it, on a prefix an earlier request wrote.
+                    (i, j), last = message_markers[0], message_markers[-1]
+                    opening = next(k for k, msg in enumerate(wire["messages"]) if msg["role"] == "user" and
+                                   isinstance(msg["content"], list) and
+                                   {"type": "text", "text": followups[-2]} in content(msg["content"]))
+                    assert len(message_markers) == 2 and i == opening, f"no breakpoint on the loop's opening frame: {message_markers}"
+                    span = sum(len(msg["content"]) if isinstance(msg["content"], list) else 1
+                               for msg in wire["messages"][i:last[0]]) - j + last[1] + 1
+                    assert span > LOOKBACK and digest(cut(prompt, (i, j))) in written, "turn breakpoint not on a written prefix"
+                    receipts.append({"round": round_number, "turn_breakpoint": [i, j], "positions_to_recurring": span})
+                written.update(digest(cut(prompt, at)) for at in message_markers)
+                previous = cut(prompt, message_markers[-1]), fixed, message_markers[-1]
                 if round_number in (1, 2, 5):
                     assert THINKING in list(nodes(wire["messages"])), "signed thinking lost or changed"
                 assistant = result.choices[0].message.model_dump()
@@ -167,7 +187,8 @@ def run(binary, model):
                                     "content": "Public tool result\n" * 1000}
                                    for call in assistant["tool_calls"])
                 else:
-                    history.append({"role": "user", "content": f"Public followup {round_number}"})
+                    followups.append(f"Public followup {round_number}")
+                    history.append({"role": "user", "content": followups[-1]})
             assert all("<total_tokens>" not in json.dumps(wire) for wire in peer.wires), "native budget reminder present"
             assert sum(len(msg["content"]) for msg in peer.wires[0]["messages"]) > 20
             return {"native_version": version, "native_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),

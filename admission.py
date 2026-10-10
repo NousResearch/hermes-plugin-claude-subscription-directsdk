@@ -18,6 +18,10 @@ import urllib.request
 
 
 UNCACHEABLE = ('thinking', 'redacted_thinking')
+# Anthropic's cache lookup checks at most this many positions back from a breakpoint, the breakpoint
+# itself included, and allows this many breakpoints across tools, system and messages.
+LOOKBACK = 20
+MAX_BREAKPOINTS = 4
 # Longest byte silence after the headers before the stream counts as dead. Anthropic documents no ping
 # cadence ("any number of ping events"); this is native's own byte-level watchdog against api.anthropic.com
 # (180 s, native 2.1.263-2.1.286). Behind this relay native widens its watchdog to 300 s, the same as Hermes'
@@ -90,8 +94,73 @@ def _frame_first(messages, queried):
     return True
 
 
+def _opens_turn(message):
+    """A user message carrying anything but tool results: a new turn, or a /steer row after them."""
+    content = message.get('content')
+    return message.get('role') == 'user' and (isinstance(content, str) or any(
+        not isinstance(b, dict) or b.get('type') != 'tool_result' for b in content or []))
+
+
+def _keep_turn_mark(body, messages, last, target):
+    """Keep a breakpoint where the open turn's thinking starts, so the next turn still reads it (#122).
+
+    Once a user message carries more than tool results (the next turn, or a /steer row), the
+    entries written after the open turn's first thinking block stop matching; #122's captures
+    read back only the newest entry written before it, by the turn's first call or by the call
+    whose answer first thought. Anthropic's lookup walks back at most LOOKBACK positions from a
+    breakpoint, so after a longer loop the recurring breakpoint cannot reach that entry and the
+    read falls back to tools and system: the whole conversation is written again. Out of that
+    reach, the block carries a mark of its own, which reads the entry an earlier request of the
+    turn wrote there (as its recurring breakpoint) and keeps it alive through the loop.
+
+    The open turn starts at the latest user message with more than tool results before the last
+    assistant message; the mark goes on the last cacheable block of the user message right
+    before the turn's first assistant message with thinking. Distance is counted per block,
+    without the API's merging of tool_use and tool_result runs, so an error only marks early.
+    The mark takes the TTL of the next mark after it, so native's order of TTLs holds. It is
+    added only while the request stays within MAX_BREAKPOINTS; at the limit (2.1.287+ marks two
+    message blocks) a native mark between it and the marked recurring breakpoint moves there
+    instead, and otherwise nothing changes. Returns whether a mark was placed."""
+    opening = max((i for i in range(last) if _opens_turn(messages[i])), default=None)
+    if opening is None:
+        return False
+    thought = next((i for i in range(opening + 1, last + 1) if messages[i].get('role') == 'assistant'
+                    and isinstance(messages[i].get('content'), list)
+                    and any(isinstance(b, dict) and b.get('type') in UNCACHEABLE for b in messages[i]['content'])), None)
+    if thought is None:
+        return False
+    frame = next((i for i in range(thought - 1, opening, -1) if messages[i].get('role') == 'user'), opening)
+    content = messages[frame].get('content')
+    if not isinstance(content, list):
+        return False
+    j = next((k for k in reversed(range(len(content)))
+              if isinstance(content[k], dict) and content[k].get('type') not in UNCACHEABLE), None)
+    if j is None or 'cache_control' in content[j] or (frame, j) >= target[:2]:
+        return False
+    span = sum(len(m['content']) if isinstance(m.get('content'), list) else 1 for m in messages[frame:target[0]])
+    if span - j + target[1] + 1 <= LOOKBACK:
+        return False  # The recurring breakpoint's own lookback still reaches it.
+    marks = [(i, k, b) for i, m in enumerate(messages) if isinstance(m.get('content'), list)
+             for k, b in enumerate(m['content']) if isinstance(b, dict) and 'cache_control' in b]
+    later = [(i, k, b) for i, k, b in marks if (frame, j) < (i, k)]
+    if not later:
+        return False
+    system = body.get('system')
+    used = len(marks) + ('cache_control' in body) + sum(
+        isinstance(b, dict) and 'cache_control' in b
+        for part in (body.get('tools') or [], system if isinstance(system, list) else []) for b in part)
+    if used < MAX_BREAKPOINTS:
+        content[j]['cache_control'] = copy.deepcopy(later[0][2]['cache_control'])
+        return True
+    spare = next((b for i, k, b in later if (i, k) < target[:2]), None)
+    if spare is None or 'cache_control' not in target[2]:
+        return False
+    content[j]['cache_control'] = spare.pop('cache_control')
+    return True
+
+
 def pin_message_breakpoint(payload, queried):
-    """Keep the single message ``cache_control`` on content the next request replays unchanged.
+    """Keep the recurring message ``cache_control`` on content the next request replays unchanged.
 
     Native attaches per-request context (today's date, the account-email reminder, whatever a
     later CLI adds) to the turn it answers and puts the message breakpoint on or after it. The
@@ -108,8 +177,10 @@ def pin_message_breakpoint(payload, queried):
     tool_use of the turn and its trailing per-request ``role: system`` message (#33). That
     message never recurs, so its entry is never read and each round is written twice. Marks
     after the span are therefore folded into one on its last block; a native mark inside the
-    span recurs and stays. The breakpoint count never grows (Anthropic allows four across
-    tools, system and messages), system and tools marks are never touched, and the moved
+    span recurs and stays. After a tool loop longer than the cache lookback, one more mark
+    keeps the open turn's start readable for the next turn (``_keep_turn_mark``, #122).
+    The count grows by at most that one mark and only within Anthropic's four across tools,
+    system and messages; system and tools marks are never touched, and a moved or added
     marker keeps native's own order of TTLs.
     The breakpoint never moves later, content never changes, and any payload that does not
     parse forwards as is."""
@@ -139,10 +210,12 @@ def pin_message_breakpoint(payload, queried):
         target = next(((i, j, b) for i, j, b in reversed(stable)
                        if isinstance(b, dict) and b.get('type') not in UNCACHEABLE), None)
         after = [b for i, j, b in marked if target is not None and (target[0], target[1]) < (i, j)]
-        if target is not None and after:
+        folded = target is not None and bool(after)
+        if folded:
             moved = [b.pop('cache_control') for b in after][0]
             target[2].setdefault('cache_control', moved)
-        elif not reordered:
+        turn = target is not None and _keep_turn_mark(body, messages, last, target)
+        if not (reordered or folded or turn):
             return payload
         return json.dumps(body, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
     except (ValueError, TypeError, KeyError, AttributeError, IndexError):
