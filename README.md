@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> **This repo has moved.** Claude Subscription DirectSDK now lives in [**NousResearch/hermes-official-plugins**](https://github.com/NousResearch/hermes-official-plugins/tree/main/claude-subscription-directsdk), the single home for Nous Research's official Hermes Agent plugins, with this repo's full history. Open issues and PRs were moved there. Catalog installs follow automatically on `hermes plugins update claude-subscription-directsdk-experimental`; if you installed by URL, run `hermes plugins install claude-subscription-directsdk --force` once.
+
 # Claude Subscription DirectSDK (Experimental) — Hermes plugin
 
 ![Claude Subscription DirectSDK — a Hermes model-provider plugin: Hermes → claude CLI → stream-json, on your Claude Pro/Max subscription](assets/hero-technohellenic.png)
